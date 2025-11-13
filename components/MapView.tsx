@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { dashboardData, cityLocations } from '../data/dashboardData';
 import { MapIcon } from './icons/MapIcon';
 import { KeyIcon } from './icons/KeyIcon';
+import { SearchIcon } from './icons/SearchIcon';
 
-// FIX: Define AIStudio interface within the global scope to resolve type conflicts.
+// Define AIStudio interface within the global scope to resolve type conflicts.
 // Extend the Window interface to include google.maps and aistudio.
 declare global {
     interface AIStudio {
@@ -17,6 +18,28 @@ declare global {
     }
 }
 
+const ListIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+);
+
 const getAqiColor = (aqi: number) => {
     if (aqi <= 50) return '#22c55e'; // green-500
     if (aqi <= 100) return '#facc15'; // yellow-400
@@ -25,6 +48,16 @@ const getAqiColor = (aqi: number) => {
     if (aqi <= 300) return '#a855f7'; // purple-500
     return '#881337'; // maroon-500 (custom)
 }
+
+const aqiCategories = [
+    { name: 'Good', range: '0-50', color: '#22c55e' },
+    { name: 'Moderate', range: '51-100', color: '#facc15' },
+    { name: 'Unhealthy for Sensitive', range: '101-150', color: '#f97316' },
+    { name: 'Unhealthy', range: '151-200', color: '#ef4444' },
+    { name: 'Very Unhealthy', range: '201-300', color: '#a855f7' },
+    { name: 'Hazardous', range: '301+', color: '#881337' },
+];
+
 
 const generateSparkline = (data: { month: string; avgAqi: number }[]): string => {
     if (!data || data.length < 2) return '';
@@ -150,11 +183,19 @@ const mapStyles = [
 
 const MapView: React.FC = () => {
     const mapRef = useRef<HTMLDivElement>(null);
+    const mapInstanceRef = useRef<any>(null);
+    const markersRef = useRef<Map<string, any>>(new Map());
+    const infoWindowsRef = useRef<Map<string, any>>(new Map());
+    const activeInfoWindowRef = useRef<any>(null);
+    
     const isScriptLoaded = useRef(false);
     const [isApiReady, setIsApiReady] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [apiKeySelected, setApiKeySelected] = useState(false);
+    const [isLegendOpen, setIsLegendOpen] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchError, setSearchError] = useState<string | null>(null);
 
     const loadScript = useCallback(() => {
         if (isScriptLoaded.current || window.google?.maps) {
@@ -163,7 +204,6 @@ const MapView: React.FC = () => {
             return;
         }
         
-        // Remove potentially failed script to allow retry
         document.getElementById('google-maps-script')?.remove();
 
         const script = document.createElement('script');
@@ -176,14 +216,14 @@ const MapView: React.FC = () => {
             setError(null);
         };
         script.onerror = () => {
-            setError('Google Maps failed to load. The selected API key may be invalid or not enabled for the "Maps JavaScript API". Please select a different key.');
+            setError('Google Maps failed to load. The selected API key is invalid, not enabled for the "Maps JavaScript API", or has restrictions. Please select a different key or check its configuration in the Google Cloud Console.');
             setIsLoading(false);
-            setApiKeySelected(false); // Allow user to try again
+            setApiKeySelected(false);
         };
         document.head.appendChild(script);
     }, []);
 
-    const checkAndLoadMap = useCallback(async () => {
+    const checkAndLoadMap = useCallback(async (isAfterSelection: boolean = false) => {
         setIsLoading(true);
         setError(null);
 
@@ -193,10 +233,14 @@ const MapView: React.FC = () => {
             return;
         }
 
-        const hasKey = await window.aistudio.hasSelectedApiKey();
+        const hasKey = isAfterSelection || await window.aistudio.hasSelectedApiKey();
         setApiKeySelected(hasKey);
         
         if (hasKey) {
+            if (isAfterSelection) {
+                // Short delay to mitigate race condition where process.env.API_KEY might not be updated instantly.
+                await new Promise(resolve => setTimeout(resolve, 250));
+            }
             loadScript();
         } else {
             setIsLoading(false);
@@ -209,86 +253,132 @@ const MapView: React.FC = () => {
 
     useEffect(() => {
         if (isApiReady && mapRef.current) {
-            const sanJoaquinValleyCenter = { lat: 36.7378, lng: -119.7871 };
-            const map = new window.google.maps.Map(mapRef.current, {
-                center: sanJoaquinValleyCenter,
-                zoom: 8,
-                styles: mapStyles,
-                disableDefaultUI: true,
-                zoomControl: true,
-            });
+            const initializeMap = (
+                center: { lat: number; lng: number },
+                zoom: number,
+                userLocation?: { lat: number; lng: number }
+            ) => {
+                const map = new window.google.maps.Map(mapRef.current!, {
+                    center,
+                    zoom,
+                    styles: mapStyles,
+                    disableDefaultUI: true,
+                    zoomControl: true,
+                });
+                mapInstanceRef.current = map;
+                markersRef.current.clear();
+                infoWindowsRef.current.clear();
 
-            let activeInfoWindow: any = null;
-
-            cityLocations.forEach(city => {
-                const cityData = dashboardData[city];
-                if ('coords' in cityData && 'currentAqi' in cityData && 'currentWeather' in cityData) {
-                    const aqiValue = cityData.currentAqi.aqi;
-
-                    const marker = new window.google.maps.Marker({
-                        position: cityData.coords,
+                if (userLocation) {
+                    new window.google.maps.Marker({
+                        position: userLocation,
                         map: map,
-                        title: `${city} - AQI: ${aqiValue}`,
+                        title: 'Your Location',
                         icon: {
                             path: window.google.maps.SymbolPath.CIRCLE,
-                            fillColor: getAqiColor(aqiValue),
-                            fillOpacity: 1.0,
-                            strokeColor: '#fff',
-                            strokeWeight: 1.5,
-                            scale: 14,
+                            fillColor: '#4285F4',
+                            fillOpacity: 1,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 2,
+                            scale: 8,
                         },
-                        label: {
-                            text: String(aqiValue),
-                            color: '#1e293b',
-                            fontSize: '12px',
-                            fontWeight: 'bold',
-                        }
-                    });
-                    
-                    const historicalAqiData = ('historicalAqi' in cityData && Array.isArray((cityData as any).historicalAqi)) 
-                        ? (cityData as any).historicalAqi 
-                        : [];
-                    const sparklineHtml = generateSparkline(historicalAqiData);
-
-                    const infoWindow = new window.google.maps.InfoWindow({
-                        content: `
-                            <div style="background-color: #0f172a; color: #cbd5e1; padding: 10px; font-family: sans-serif; border-radius: 4px; min-width: 160px;">
-                                <h3 style="font-weight: bold; font-size: 1rem; color: #f1f5f9; margin: 0 0 6px 0;">${city}</h3>
-                                <p style="margin: 0 0 4px 0; font-size: 0.875rem;">Current AQI: 
-                                    <span style="font-weight: 600; color: ${getAqiColor(cityData.currentAqi.aqi)};">
-                                        ${cityData.currentAqi.aqi}
-                                    </span>
-                                </p>
-                                <p style="margin: 0 0 4px 0; font-size: 0.875rem;">Temperature: 
-                                    <span style="font-weight: 600; color: #f87171;">
-                                        ${cityData.currentWeather.temp}°F
-                                    </span>
-                                </p>
-                                <p style="margin: 0; font-size: 0.875rem;">Humidity: 
-                                    <span style="font-weight: 600; color: #38bdf8;">
-                                        ${cityData.currentWeather.humidity}%
-                                    </span>
-                                </p>
-                                ${sparklineHtml}
-                            </div>
-                        `,
-                    });
-
-                    marker.addListener('click', () => {
-                        if (activeInfoWindow) {
-                            activeInfoWindow.close();
-                        }
-                        infoWindow.open(map, marker);
-                        activeInfoWindow = infoWindow;
                     });
                 }
-            });
-             map.addListener('click', () => {
-                if (activeInfoWindow) {
-                    activeInfoWindow.close();
-                    activeInfoWindow = null;
-                }
-            });
+
+                cityLocations.forEach(city => {
+                    const cityData = dashboardData[city];
+                    if ('coords' in cityData && 'currentAqi' in cityData && 'currentWeather' in cityData) {
+                        const aqiValue = cityData.currentAqi.aqi;
+
+                        const marker = new window.google.maps.Marker({
+                            position: cityData.coords,
+                            map: map,
+                            title: `${city} - AQI: ${aqiValue}`,
+                            icon: {
+                                path: window.google.maps.SymbolPath.CIRCLE,
+                                fillColor: getAqiColor(aqiValue),
+                                fillOpacity: 1.0,
+                                strokeColor: '#fff',
+                                strokeWeight: 1.5,
+                                scale: 14,
+                            },
+                            label: {
+                                text: String(aqiValue),
+                                color: '#1e293b',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                            }
+                        });
+                        
+                        const historicalAqiData = ('historicalAqi' in cityData && Array.isArray((cityData as any).historicalAqi)) 
+                            ? (cityData as any).historicalAqi 
+                            : [];
+                        const sparklineHtml = generateSparkline(historicalAqiData);
+
+                        const infoWindow = new window.google.maps.InfoWindow({
+                            content: `
+                                <div style="background-color: #0f172a; color: #cbd5e1; padding: 10px; font-family: sans-serif; border-radius: 4px; min-width: 160px;">
+                                    <h3 style="font-weight: bold; font-size: 1rem; color: #f1f5f9; margin: 0 0 6px 0;">${city}</h3>
+                                    <p style="margin: 0 0 4px 0; font-size: 0.875rem;">Current AQI: 
+                                        <span style="font-weight: 600; color: ${getAqiColor(cityData.currentAqi.aqi)};">
+                                            ${cityData.currentAqi.aqi}
+                                        </span>
+                                    </p>
+                                    <p style="margin: 0 0 4px 0; font-size: 0.875rem;">Temperature: 
+                                        <span style="font-weight: 600; color: #f87171;">
+                                            ${cityData.currentWeather.temp}°F
+                                        </span>
+                                    </p>
+                                    <p style="margin: 0; font-size: 0.875rem;">Humidity: 
+                                        <span style="font-weight: 600; color: #38bdf8;">
+                                            ${cityData.currentWeather.humidity}%
+                                        </span>
+                                    </p>
+                                    ${sparklineHtml}
+                                </div>
+                            `,
+                        });
+
+                        markersRef.current.set(city, marker);
+                        infoWindowsRef.current.set(city, infoWindow);
+
+                        marker.addListener('click', () => {
+                            if (activeInfoWindowRef.current) {
+                                activeInfoWindowRef.current.close();
+                            }
+                            infoWindow.open(map, marker);
+                            activeInfoWindowRef.current = infoWindow;
+                        });
+                    }
+                });
+                 map.addListener('click', () => {
+                    if (activeInfoWindowRef.current) {
+                        activeInfoWindowRef.current.close();
+                        activeInfoWindowRef.current = null;
+                    }
+                });
+            };
+
+            const sanJoaquinValleyCenter = { lat: 36.7378, lng: -119.7871 };
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userCoords = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude,
+                        };
+                        initializeMap(userCoords, 10, userCoords);
+                    },
+                    (error) => {
+                        console.warn(`Geolocation error: ${error.message}. Defaulting to San Joaquin Valley center.`);
+                        initializeMap(sanJoaquinValleyCenter, 8);
+                    }
+                );
+            } else {
+                 console.warn('Geolocation is not supported by this browser. Defaulting to San Joaquin Valley center.');
+                 initializeMap(sanJoaquinValleyCenter, 8);
+            }
         }
     }, [isApiReady]);
 
@@ -296,62 +386,119 @@ const MapView: React.FC = () => {
         if (!window.aistudio) return;
         try {
             await window.aistudio.openSelectKey();
-            // After dialog closes, re-run the check and load process
-            await checkAndLoadMap();
+            checkAndLoadMap(true);
         } catch (e) {
             console.error("Error opening select key dialog", e);
             setError("Could not open the API key selection dialog.");
         }
     };
+    
+    const handleSearch = useCallback((e: React.FormEvent) => {
+        e.preventDefault();
+        if (!searchQuery || !mapInstanceRef.current) return;
 
-    if (isLoading) {
-        return (
-            <div className="h-full flex items-center justify-center bg-brand-bg-light rounded-lg">
-                <div className="w-12 h-12 border-4 border-t-transparent border-brand-primary rounded-full animate-spin"></div>
-            </div>
-        );
-    }
+        const service = new window.google.maps.places.PlacesService(mapInstanceRef.current);
+        service.textSearch({ query: searchQuery, location: mapInstanceRef.current.getCenter(), radius: 50000 }, (results: any[], status: string) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && results.length > 0) {
+                setSearchError(null);
+                const location = results[0].geometry.location;
+                mapInstanceRef.current.setCenter(location);
+                mapInstanceRef.current.setZoom(12);
 
-    if (!apiKeySelected) {
+                const infoWindow = new window.google.maps.InfoWindow({
+                    content: `<strong>${results[0].name}</strong><br>${results[0].formatted_address}`
+                });
+                const marker = new window.google.maps.Marker({
+                    map: mapInstanceRef.current,
+                    position: location,
+                });
+                infoWindow.open(mapInstanceRef.current, marker);
+
+            } else {
+                setSearchError('Location not found. Please try a different search term.');
+            }
+        });
+
+    }, [searchQuery]);
+
+    const renderContent = () => {
+        if (isLoading) {
+            return (
+                <div className="flex items-center justify-center h-full bg-brand-bg-dark rounded-lg">
+                    <div className="w-10 h-10 border-4 border-t-transparent border-brand-primary rounded-full animate-spin"></div>
+                </div>
+            );
+        }
+
+        if (!apiKeySelected || error) {
+            return (
+                 <div className="flex items-center justify-center h-full bg-brand-bg-dark rounded-lg">
+                    <div className="text-center p-8 bg-brand-bg-light rounded-lg shadow-xl max-w-md mx-auto">
+                        <KeyIcon className="w-12 h-12 text-brand-primary mx-auto mb-4" />
+                        <h3 className="text-xl font-bold text-slate-100 mb-2">Google Maps API Key Required</h3>
+                        <p className="text-slate-400 mb-6">
+                            To view the interactive map, you need to select a Google Cloud API key with the "Maps JavaScript API" enabled. This app may incur charges against your selected billing project.
+                            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline ml-1">Learn about billing.</a>
+                        </p>
+                        {error && <p className="bg-red-900/50 border border-red-700 text-red-200 p-3 rounded-md mb-4 text-sm">{error}</p>}
+                        <button
+                            onClick={handleSelectKey}
+                            className="w-full py-2 px-4 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <KeyIcon className="w-5 h-5"/>
+                            Select API Key
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         return (
-            <div className="h-full flex flex-col items-center justify-center p-4 text-center">
-                <div className="bg-brand-bg-light p-8 rounded-lg shadow-lg max-w-md">
-                    <KeyIcon className="w-16 h-16 mx-auto text-brand-primary mb-4" />
-                    <h2 className="text-2xl font-bold text-slate-100">API Key Required for Google Maps</h2>
-                    <p className="text-slate-400 mt-2 mb-6">
-                        To display the interactive map, you need to select a Google Cloud API key that is enabled for the <strong>Maps JavaScript API</strong>.
-                    </p>
-                    {error && <p className="bg-red-900/50 text-red-200 p-3 rounded-md mb-4 text-sm">{error}</p>}
-                    <button
-                        onClick={handleSelectKey}
-                        className="w-full py-3 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
-                    >
-                        <KeyIcon className="w-5 h-5" />
-                        Select API Key
+            <div className="relative w-full h-full rounded-lg overflow-hidden shadow-lg">
+                <div ref={mapRef} className="w-full h-full" />
+                 <div className="absolute top-4 left-4 right-4 md:right-auto md:w-96 bg-brand-bg-light/90 backdrop-blur-sm p-3 rounded-lg shadow-xl border border-brand-secondary/50">
+                     <form onSubmit={handleSearch} className="flex gap-2">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search for a location on the map..."
+                            className="flex-1 p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary text-sm"
+                        />
+                         <button type="submit" className="p-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 transition-colors">
+                            <SearchIcon className="w-5 h-5" />
+                        </button>
+                    </form>
+                     {searchError && <p className="text-red-400 text-xs mt-2">{searchError}</p>}
+                </div>
+                <div className="absolute bottom-4 left-4 bg-brand-bg-light/90 backdrop-blur-sm p-3 rounded-lg shadow-xl border border-brand-secondary/50">
+                    <button onClick={() => setIsLegendOpen(!isLegendOpen)} className="flex items-center justify-between w-full font-bold text-slate-200">
+                        {isLegendOpen ? 'Hide Legend' : 'Show Legend'}
+                        <ListIcon className="w-5 h-5 ml-2"/>
                     </button>
-                     <p className="text-xs text-slate-500 mt-4">
-                        A Gemini API key alone is not sufficient for this feature. 
-                        For more information on billing, see the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-sky-400">documentation</a>.
-                    </p>
+                     {isLegendOpen && (
+                        <div className="mt-3 space-y-2">
+                            <h4 className="font-semibold text-sm text-slate-300 border-b border-brand-secondary pb-1 mb-2">AQI Legend</h4>
+                            {aqiCategories.map(cat => (
+                                <div key={cat.name} className="flex items-center gap-3">
+                                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                                    <span className="text-xs text-slate-300">{cat.name} ({cat.range})</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         );
-    }
+    };
 
     return (
-        <div className="h-full flex flex-col space-y-4">
-             <div>
-                <h2 className="text-3xl font-bold text-slate-100 flex items-center gap-2">
-                    <MapIcon className="w-8 h-8"/>
-                    Interactive Map
-                </h2>
-                <p className="text-slate-400">
-                    Visualize real-time air quality data across the San Joaquin Valley. Click on a marker for details.
-                </p>
-            </div>
-             <div className="flex-grow bg-brand-bg-light rounded-lg shadow-lg relative overflow-hidden">
-                <div ref={mapRef} className="w-full h-full" />
-            </div>
+        <div className="h-[calc(100vh-150px)] min-h-[500px]">
+            <h2 className="text-3xl font-bold text-slate-100 mb-4 flex items-center gap-3">
+                <MapIcon className="w-8 h-8 text-brand-primary"/>
+                Interactive Air Quality Map
+            </h2>
+            {renderContent()}
         </div>
     );
 };
