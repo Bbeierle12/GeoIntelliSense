@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
+import {
     ResponsiveContainer,
     LineChart,
     ComposedChart,
@@ -13,10 +13,10 @@ import {
     Tooltip,
     Legend,
 } from 'recharts';
-import { 
-    getGroundedSearchResponse, 
-    getGroundedMapsResponse, 
-    getLowLatencyResponse, 
+import {
+    getGroundedSearchResponse,
+    getGroundedMapsResponse,
+    getLowLatencyResponse,
     getDeepAnalysisResponse,
     getPredictiveAnalysisResponse,
     getWeatherForecastResponse
@@ -29,6 +29,8 @@ import { SparklesIcon } from './icons/SparklesIcon';
 import { TrendingUpIcon } from './icons/TrendingUpIcon';
 import { CloudIcon } from './icons/CloudIcon';
 import { dashboardData, cityLocations, LocationKey } from '../data/dashboardData';
+import { SAN_JOAQUIN_VALLEY_CENTER } from '../constants/locations';
+import { ANALYSIS_PROMPT, CUSTOM_FACTORS, VALIDATION_ERRORS } from '../constants/validation';
 
 const toolConfig = {
     quick: {
@@ -100,7 +102,7 @@ const AnalysisView: React.FC = () => {
             (err) => {
                 console.warn(`Geolocation error: ${err.message}`);
                 // Fallback to a location in San Joaquin Valley (Fresno)
-                setLocation({ latitude: 36.7378, longitude: -119.7871 });
+                setLocation({ latitude: SAN_JOAQUIN_VALLEY_CENTER.lat, longitude: SAN_JOAQUIN_VALLEY_CENTER.lng });
             }
         );
         
@@ -165,20 +167,20 @@ const AnalysisView: React.FC = () => {
                 return;
             }
 
-            if (prompt.trim().length < 2) {
-                setError("Please enter at least 2 characters.");
+            if (prompt.trim().length < ANALYSIS_PROMPT.MIN_LENGTH) {
+                setError(VALIDATION_ERRORS.TOO_SHORT(ANALYSIS_PROMPT.MIN_LENGTH));
                 return;
             }
 
-            if (prompt.length > 5000) {
-                setError("Prompt is too long. Please limit to 5000 characters.");
+            if (prompt.length > ANALYSIS_PROMPT.MAX_LENGTH) {
+                setError(VALIDATION_ERRORS.TOO_LONG(ANALYSIS_PROMPT.MAX_LENGTH));
                 return;
             }
         }
 
         // Validate custom factors for forecast tools
-        if (isForecastTool && customFactors && customFactors.length > 2000) {
-            setError("Custom factors text is too long. Please limit to 2000 characters.");
+        if (isForecastTool && customFactors && customFactors.length > CUSTOM_FACTORS.MAX_LENGTH) {
+            setError(VALIDATION_ERRORS.TOO_LONG(CUSTOM_FACTORS.MAX_LENGTH));
             return;
         }
 
@@ -273,8 +275,9 @@ const AnalysisView: React.FC = () => {
                     }
                     break;
             }
-        } catch (e: any) {
-            setError(e.message || "An unexpected error occurred.");
+        } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
+            setError(errorMessage);
         } finally {
             setIsLoading(false);
         }

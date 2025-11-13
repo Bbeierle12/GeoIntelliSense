@@ -4,6 +4,9 @@ import { dashboardData, cityLocations } from '../data/dashboardData';
 import { MapIcon } from './icons/MapIcon';
 import { KeyIcon } from './icons/KeyIcon';
 import { SearchIcon } from './icons/SearchIcon';
+import { getAqiColor, AQI_CATEGORIES } from '../constants/aqi';
+import { SAN_JOAQUIN_VALLEY_CENTER, DEFAULT_CITY_ZOOM, SEARCH_RADIUS_METERS } from '../constants/locations';
+import { SEARCH_INPUT, VALIDATION_ERRORS } from '../constants/validation';
 
 // Define AIStudio interface within the global scope to resolve type conflicts.
 // Extend the Window interface to include google.maps and aistudio.
@@ -14,7 +17,7 @@ declare global {
     }
 
     interface Window {
-        google: any;
+        google: any; // Google Maps API dynamically loaded at runtime
         aistudio?: AIStudio;
     }
 }
@@ -40,24 +43,6 @@ const ListIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <line x1="3" y1="18" x2="3.01" y2="18" />
   </svg>
 );
-
-const getAqiColor = (aqi: number) => {
-    if (aqi <= 50) return '#22c55e'; // green-500
-    if (aqi <= 100) return '#facc15'; // yellow-400
-    if (aqi <= 150) return '#f97316'; // orange-500
-    if (aqi <= 200) return '#ef4444'; // red-500
-    if (aqi <= 300) return '#a855f7'; // purple-500
-    return '#881337'; // maroon-500 (custom)
-}
-
-const aqiCategories = [
-    { name: 'Good', range: '0-50', color: '#22c55e' },
-    { name: 'Moderate', range: '51-100', color: '#facc15' },
-    { name: 'Unhealthy for Sensitive', range: '101-150', color: '#f97316' },
-    { name: 'Unhealthy', range: '151-200', color: '#ef4444' },
-    { name: 'Very Unhealthy', range: '201-300', color: '#a855f7' },
-    { name: 'Hazardous', range: '301+', color: '#881337' },
-];
 
 
 const generateSparkline = (data: { month: string; avgAqi: number }[]): string => {
@@ -300,7 +285,7 @@ const mapStyles = [
 const MapView: React.FC = () => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<any>(null);
-    const markerClustererRef = useRef<any>(null);
+    const markerClustererRef = useRef<MarkerClusterer | null>(null);
     const infoWindowsRef = useRef<Map<string, any>>(new Map());
     const activeInfoWindowRef = useRef<any>(null);
     
@@ -486,8 +471,6 @@ const MapView: React.FC = () => {
                 });
             };
 
-            const sanJoaquinValleyCenter = { lat: 36.7378, lng: -119.7871 };
-
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
@@ -499,14 +482,16 @@ const MapView: React.FC = () => {
                     },
                     (error) => {
                         console.warn(`Geolocation error: ${error.message}. Defaulting to San Joaquin Valley center.`);
-                        initializeMap(sanJoaquinValleyCenter, 8);
+                        initializeMap(SAN_JOAQUIN_VALLEY_CENTER, 8);
                     }
                 );
             } else {
                  console.warn('Geolocation is not supported by this browser. Defaulting to San Joaquin Valley center.');
-                 initializeMap(sanJoaquinValleyCenter, 8);
+                 initializeMap(SAN_JOAQUIN_VALLEY_CENTER, 8);
             }
         }
+    // cityLocations and dashboardData are static imports and don't need to be in dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isApiReady]);
 
     const handleSelectKey = async () => {
@@ -525,19 +510,19 @@ const MapView: React.FC = () => {
 
         // Input validation
         if (!searchQuery || !mapInstanceRef.current) {
-            setSearchError('Please enter a search term.');
+            setSearchError(VALIDATION_ERRORS.EMPTY_INPUT);
             return;
         }
 
         const trimmedQuery = searchQuery.trim();
 
-        if (trimmedQuery.length < 2) {
-            setSearchError('Please enter at least 2 characters.');
+        if (trimmedQuery.length < SEARCH_INPUT.MIN_LENGTH) {
+            setSearchError(VALIDATION_ERRORS.TOO_SHORT(SEARCH_INPUT.MIN_LENGTH));
             return;
         }
 
-        if (trimmedQuery.length > 100) {
-            setSearchError('Search query is too long. Please limit to 100 characters.');
+        if (trimmedQuery.length > SEARCH_INPUT.MAX_LENGTH) {
+            setSearchError(VALIDATION_ERRORS.TOO_LONG(SEARCH_INPUT.MAX_LENGTH));
             return;
         }
 
@@ -545,31 +530,38 @@ const MapView: React.FC = () => {
         setSearchError(null);
 
         const service = new window.google.maps.places.PlacesService(mapInstanceRef.current);
-        service.textSearch({ query: trimmedQuery, location: mapInstanceRef.current.getCenter(), radius: 50000 }, (results: any[], status: string) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && results.length > 0) {
-                const result = results[0];
-                if (!result?.geometry?.location) {
-                    setSearchError('Invalid location data received.');
-                    return;
+        service.textSearch(
+            {
+                query: trimmedQuery,
+                location: mapInstanceRef.current.getCenter() ?? undefined,
+                radius: SEARCH_RADIUS_METERS
+            },
+            (results: any[] | null, status: any) => {
+                if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+                    const result = results[0];
+                    if (!result?.geometry?.location) {
+                        setSearchError(VALIDATION_ERRORS.INVALID_DATA);
+                        return;
+                    }
+
+                    const location = result.geometry.location;
+                    mapInstanceRef.current?.setCenter(location);
+                    mapInstanceRef.current?.setZoom(DEFAULT_CITY_ZOOM);
+
+                    const infoWindow = new window.google.maps.InfoWindow({
+                        content: `<strong>${result.name || 'Location'}</strong><br>${result.formatted_address || ''}`
+                    });
+                    const marker = new window.google.maps.Marker({
+                        map: mapInstanceRef.current ?? undefined,
+                        position: location,
+                    });
+                    infoWindow.open(mapInstanceRef.current ?? undefined, marker);
+
+                } else {
+                    setSearchError('Location not found. Please try a different search term.');
                 }
-
-                const location = result.geometry.location;
-                mapInstanceRef.current.setCenter(location);
-                mapInstanceRef.current.setZoom(12);
-
-                const infoWindow = new window.google.maps.InfoWindow({
-                    content: `<strong>${result.name || 'Location'}</strong><br>${result.formatted_address || ''}`
-                });
-                const marker = new window.google.maps.Marker({
-                    map: mapInstanceRef.current,
-                    position: location,
-                });
-                infoWindow.open(mapInstanceRef.current, marker);
-
-            } else {
-                setSearchError('Location not found. Please try a different search term.');
             }
-        });
+        );
 
     }, [searchQuery]);
 
@@ -606,34 +598,45 @@ const MapView: React.FC = () => {
         }
 
         return (
-            <div className="relative w-full h-full rounded-lg overflow-hidden shadow-lg">
-                <div ref={mapRef} className="w-full h-full" />
+            <div className="relative w-full h-full rounded-lg overflow-hidden shadow-lg" role="region" aria-label="Interactive Air Quality Map">
+                <div ref={mapRef} className="w-full h-full" aria-label="Air quality map showing San Joaquin Valley locations" />
                  <div className="absolute top-4 left-4 right-4 md:right-auto md:w-96 bg-brand-bg-light/90 backdrop-blur-sm p-3 rounded-lg shadow-xl border border-brand-secondary/50">
-                     <form onSubmit={handleSearch} className="flex gap-2">
+                     <form onSubmit={handleSearch} className="flex gap-2" role="search">
+                        <label htmlFor="map-search" className="sr-only">
+                            Search for a location on the map
+                        </label>
                         <input
+                            id="map-search"
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search for a location on the map..."
                             className="flex-1 p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary text-sm"
+                            aria-describedby={searchError ? "search-error" : undefined}
                         />
-                         <button type="submit" className="p-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 transition-colors">
-                            <SearchIcon className="w-5 h-5" />
+                         <button type="submit" className="p-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 transition-colors" aria-label="Search">
+                            <SearchIcon className="w-5 h-5" aria-hidden="true" />
                         </button>
                     </form>
-                     {searchError && <p className="text-red-400 text-xs mt-2">{searchError}</p>}
+                     {searchError && <p id="search-error" className="text-red-400 text-xs mt-2" role="alert">{searchError}</p>}
                 </div>
                 <div className="absolute bottom-4 left-4 bg-brand-bg-light/90 backdrop-blur-sm p-3 rounded-lg shadow-xl border border-brand-secondary/50">
-                    <button onClick={() => setIsLegendOpen(!isLegendOpen)} className="flex items-center justify-between w-full font-bold text-slate-200">
-                        {isLegendOpen ? 'Hide Legend' : 'Show Legend'}
-                        <ListIcon className="w-5 h-5 ml-2"/>
+                    <button
+                        onClick={() => setIsLegendOpen(!isLegendOpen)}
+                        className="flex items-center justify-between w-full font-bold text-slate-200"
+                        aria-expanded={isLegendOpen}
+                        aria-controls="aqi-legend"
+                        aria-label={isLegendOpen ? 'Hide AQI Legend' : 'Show AQI Legend'}
+                    >
+                        <span>{isLegendOpen ? 'Hide Legend' : 'Show Legend'}</span>
+                        <ListIcon className="w-5 h-5 ml-2" aria-hidden="true" />
                     </button>
                      {isLegendOpen && (
-                        <div className="mt-3 space-y-2">
+                        <div id="aqi-legend" className="mt-3 space-y-2" role="region" aria-label="Air Quality Index Legend">
                             <h4 className="font-semibold text-sm text-slate-300 border-b border-brand-secondary pb-1 mb-2">AQI Legend</h4>
-                            {aqiCategories.map(cat => (
+                            {AQI_CATEGORIES.map(cat => (
                                 <div key={cat.name} className="flex items-center gap-3">
-                                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }} aria-hidden="true"></div>
                                     <span className="text-xs text-slate-300">{cat.name} ({cat.range})</span>
                                 </div>
                             ))}

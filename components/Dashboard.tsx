@@ -1,4 +1,3 @@
-// FIX: Import useCallback hook from React.
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine, ComposedChart
@@ -8,8 +7,22 @@ import { EyeIcon } from './icons/EyeIcon';
 import { WindIcon } from './icons/WindIcon';
 import { CloudIcon } from './icons/CloudIcon';
 import { dashboardData, locations, LocationKey } from '../data/dashboardData';
+import { getAqiColorClass, AQI_ALERT_THRESHOLD } from '../constants/aqi';
 
 const comparisonColors = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#eab308'];
+
+// Chart data type interfaces
+interface ChartDataPoint {
+  [key: string]: string | number;
+}
+
+interface ForecastDataPoint extends ChartDataPoint {
+  day: string;
+}
+
+interface HistoricalDataPoint extends ChartDataPoint {
+  month: string;
+}
 
 type DashboardTab = 'overview' | 'aqi' | 'weather';
 
@@ -51,15 +64,6 @@ const Dashboard: React.FC = () => {
   
   const isComparisonMode = selectedLocations.length > 1;
 
-  const getAqiColor = (aqi: number) => {
-      if (aqi <= 50) return 'text-green-500';
-      if (aqi <= 100) return 'text-yellow-400';
-      if (aqi <= 150) return 'text-orange-500';
-      if (aqi <= 200) return 'text-red-500';
-      if (aqi <= 300) return 'text-purple-500';
-      return 'text-maroon-500';
-  }
-
   const activeAlerts = useMemo(() => {
     const alerts: { name: string; aqi: number }[] = [];
     const checkedLocations = new Set<string>();
@@ -70,12 +74,12 @@ const Dashboard: React.FC = () => {
 
         if (loc === 'Valley Average' && 'regionalAqi' in locData) {
             locData.regionalAqi.forEach(city => {
-                if (city.aqi > 100 && !checkedLocations.has(city.name)) {
+                if (city.aqi > AQI_ALERT_THRESHOLD && !checkedLocations.has(city.name)) {
                     alerts.push({ name: city.name, aqi: city.aqi });
                     checkedLocations.add(city.name);
                 }
             });
-        } else if ('currentAqi' in locData && locData.currentAqi && locData.currentAqi.aqi > 100) {
+        } else if ('currentAqi' in locData && locData.currentAqi && locData.currentAqi.aqi > AQI_ALERT_THRESHOLD) {
             if (!checkedLocations.has(loc)) {
                 alerts.push({ name: loc, aqi: locData.currentAqi.aqi });
                 checkedLocations.add(loc);
@@ -87,7 +91,7 @@ const Dashboard: React.FC = () => {
 
   // Memoize merged data for performance
   const mergedForecastData = useMemo(() => {
-    const dayMap = new Map<string, Record<string, any>>();
+    const dayMap = new Map<string, ForecastDataPoint>();
     selectedLocations.forEach(loc => {
         const locEntry = dashboardData[loc];
         if (locEntry && 'weatherForecast' in locEntry) {
@@ -126,7 +130,7 @@ const Dashboard: React.FC = () => {
     const { filteredMonthOrder } = getFilteredHistoricalData('historicalAqi');
     if (filteredMonthOrder.length === 0) return [];
     
-    const monthMap = new Map<string, Record<string, any>>();
+    const monthMap = new Map<string, HistoricalDataPoint>();
     selectedLocations.forEach(loc => {
         const locEntry = dashboardData[loc];
         if (locEntry && 'historicalAqi' in locEntry) {
@@ -146,7 +150,7 @@ const Dashboard: React.FC = () => {
     const { filteredMonthOrder } = getFilteredHistoricalData('historicalAqi');
     if (filteredMonthOrder.length === 0) return [];
 
-    const monthMap = new Map<string, Record<string, any>>();
+    const monthMap = new Map<string, HistoricalDataPoint>();
     selectedLocations.forEach(loc => {
         const locEntry = dashboardData[loc];
         if (locEntry && 'historicalAqi' in locEntry) {
@@ -166,7 +170,7 @@ const Dashboard: React.FC = () => {
     const { filteredMonthOrder } = getFilteredHistoricalData('historicalWeather');
     if (filteredMonthOrder.length === 0) return [];
 
-    const monthMap = new Map<string, Record<string, any>>();
+    const monthMap = new Map<string, HistoricalDataPoint>();
     selectedLocations.forEach(loc => {
         const locEntry = dashboardData[loc];
         if (locEntry && 'historicalWeather' in locEntry) {
@@ -238,11 +242,11 @@ const Dashboard: React.FC = () => {
                     <h3 className="text-xl font-semibold text-slate-200 mb-2">Current Conditions in {location}</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center py-4">
                         <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
-                            <p className={`text-5xl font-bold ${getAqiColor(data.currentAqi.aqi)}`}>{data.currentAqi.aqi}</p>
+                            <p className={`text-5xl font-bold ${getAqiColorClass(data.currentAqi.aqi)}`}>{data.currentAqi.aqi}</p>
                             <p className="text-slate-400 font-semibold mt-1">AQI</p>
                         </div>
                         <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
-                            <p className={`text-5xl font-bold ${getAqiColor(data.currentAqi.pm25 * 2.5)}`}>{data.currentAqi.pm25}</p> 
+                            <p className={`text-5xl font-bold ${getAqiColorClass(data.currentAqi.pm25 * 2.5)}`}>{data.currentAqi.pm25}</p> 
                             <p className="text-slate-400 font-semibold mt-1 text-sm">PM2.5 (&micro;g/m³)</p>
                         </div>
                          { 'currentWeather' in data && data.currentWeather && (
@@ -287,9 +291,9 @@ const Dashboard: React.FC = () => {
                     return (
                         <div key={loc} className="text-center bg-brand-bg-dark p-3 rounded-md">
                             <h4 className="font-bold text-slate-300">{loc}</h4>
-                            <p className={`text-4xl font-bold ${getAqiColor(data.currentAqi.aqi)}`}>{data.currentAqi.aqi}</p>
+                            <p className={`text-4xl font-bold ${getAqiColorClass(data.currentAqi.aqi)}`}>{data.currentAqi.aqi}</p>
                             <p className="text-sm text-slate-400">AQI</p>
-                            <p className={`text-2xl font-bold mt-2 ${getAqiColor(data.currentAqi.pm25 * 2.5)}`}>{data.currentAqi.pm25}</p>
+                            <p className={`text-2xl font-bold mt-2 ${getAqiColorClass(data.currentAqi.pm25 * 2.5)}`}>{data.currentAqi.pm25}</p>
                             <p className="text-xs text-slate-500">PM2.5</p>
                             { 'currentWeather' in data && data.currentWeather &&
                                 <div className="flex justify-around mt-3 pt-3 border-t border-brand-bg-lighter">
