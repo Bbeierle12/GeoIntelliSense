@@ -5,6 +5,7 @@ import Dashboard from './components/Dashboard';
 import ChatView from './components/ChatView';
 import AnalysisView from './components/AnalysisView';
 import MapView from './components/MapView';
+import ErrorBoundary from './components/ErrorBoundary';
 import type { ViewType } from './types';
 
 const App: React.FC = () => {
@@ -26,15 +27,17 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-brand-bg-dark font-sans">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-brand-bg-dark p-4 md:p-6 lg:p-8">
-          {renderView()}
-        </main>
+    <ErrorBoundary>
+      <div className="flex h-screen bg-brand-bg-dark font-sans">
+        <Sidebar activeView={activeView} setActiveView={setActiveView} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header />
+          <main className="flex-1 overflow-x-hidden overflow-y-auto bg-brand-bg-dark p-4 md:p-6 lg:p-8">
+            {renderView()}
+          </main>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 

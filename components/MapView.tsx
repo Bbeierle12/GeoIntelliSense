@@ -522,18 +522,43 @@ const MapView: React.FC = () => {
     
     const handleSearch = useCallback((e: React.FormEvent) => {
         e.preventDefault();
-        if (!searchQuery || !mapInstanceRef.current) return;
+
+        // Input validation
+        if (!searchQuery || !mapInstanceRef.current) {
+            setSearchError('Please enter a search term.');
+            return;
+        }
+
+        const trimmedQuery = searchQuery.trim();
+
+        if (trimmedQuery.length < 2) {
+            setSearchError('Please enter at least 2 characters.');
+            return;
+        }
+
+        if (trimmedQuery.length > 100) {
+            setSearchError('Search query is too long. Please limit to 100 characters.');
+            return;
+        }
+
+        // Clear previous error
+        setSearchError(null);
 
         const service = new window.google.maps.places.PlacesService(mapInstanceRef.current);
-        service.textSearch({ query: searchQuery, location: mapInstanceRef.current.getCenter(), radius: 50000 }, (results: any[], status: string) => {
+        service.textSearch({ query: trimmedQuery, location: mapInstanceRef.current.getCenter(), radius: 50000 }, (results: any[], status: string) => {
             if (status === window.google.maps.places.PlacesServiceStatus.OK && results.length > 0) {
-                setSearchError(null);
-                const location = results[0].geometry.location;
+                const result = results[0];
+                if (!result?.geometry?.location) {
+                    setSearchError('Invalid location data received.');
+                    return;
+                }
+
+                const location = result.geometry.location;
                 mapInstanceRef.current.setCenter(location);
                 mapInstanceRef.current.setZoom(12);
 
                 const infoWindow = new window.google.maps.InfoWindow({
-                    content: `<strong>${results[0].name}</strong><br>${results[0].formatted_address}`
+                    content: `<strong>${result.name || 'Location'}</strong><br>${result.formatted_address || ''}`
                 });
                 const marker = new window.google.maps.Marker({
                     map: mapInstanceRef.current,

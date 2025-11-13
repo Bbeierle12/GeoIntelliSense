@@ -157,7 +157,30 @@ const AnalysisView: React.FC = () => {
     const handleSubmit = useCallback(async () => {
         if (isLoading) return;
         const isForecastTool = tool === 'predictive' || tool === 'weather';
-        if (!isForecastTool && !prompt) return;
+
+        // Input validation for non-forecast tools
+        if (!isForecastTool) {
+            if (!prompt || prompt.trim().length === 0) {
+                setError("Please enter a question or prompt.");
+                return;
+            }
+
+            if (prompt.trim().length < 2) {
+                setError("Please enter at least 2 characters.");
+                return;
+            }
+
+            if (prompt.length > 5000) {
+                setError("Prompt is too long. Please limit to 5000 characters.");
+                return;
+            }
+        }
+
+        // Validate custom factors for forecast tools
+        if (isForecastTool && customFactors && customFactors.length > 2000) {
+            setError("Custom factors text is too long. Please limit to 2000 characters.");
+            return;
+        }
 
         setIsLoading(true);
         setResult(null);
@@ -167,10 +190,10 @@ const AnalysisView: React.FC = () => {
         try {
             switch (tool) {
                 case 'quick':
-                    setResult(await getLowLatencyResponse(prompt));
+                    setResult(await getLowLatencyResponse(prompt.trim()));
                     break;
                 case 'search':
-                    const searchRes = await getGroundedSearchResponse(prompt);
+                    const searchRes = await getGroundedSearchResponse(prompt.trim());
                     setResult(searchRes.text);
                     setGroundingChunks(searchRes.groundingChunks);
                     break;
@@ -180,12 +203,12 @@ const AnalysisView: React.FC = () => {
                         setIsLoading(false);
                         return;
                     }
-                    const mapsRes = await getGroundedMapsResponse(prompt, location);
+                    const mapsRes = await getGroundedMapsResponse(prompt.trim(), location);
                     setResult(mapsRes.text);
                     setGroundingChunks(mapsRes.groundingChunks);
                     break;
                 case 'deep':
-                    setResult(await getDeepAnalysisResponse(prompt));
+                    setResult(await getDeepAnalysisResponse(prompt.trim()));
                     break;
                 case 'predictive':
                 case 'weather':
@@ -418,7 +441,7 @@ const AnalysisView: React.FC = () => {
             {result && (
                 <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg space-y-4">
                     <h3 className="text-xl font-semibold">Analysis Result</h3>
-                    <div className="prose prose-invert max-w-none text-slate-300 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: result.replace(/\n/g, '<br />') }}></div>
+                    <pre className="prose prose-invert max-w-none text-slate-300 whitespace-pre-wrap font-sans">{result}</pre>
                     {groundingChunks.length > 0 && (
                         <div className="pt-4 border-t border-brand-secondary">
                             <h4 className="font-semibold mb-2">Sources:</h4>

@@ -5,22 +5,7 @@ export interface ChatMessage {
   text: string;
 }
 
-export interface GroundingChunk {
-  web?: {
-    uri: string;
-    title: string;
-  };
-  maps?: {
-    uri: string;
-    title: string;
-    placeAnswerSources?: {
-        reviewSnippets: {
-            uri: string;
-            text: string;
-            author: string;
-        }[]
-    }
-  }
-}
+// Import GroundingChunk from Google Genai library to ensure type compatibility
+export type { GroundingChunk } from '@google/genai';
 
 export type AnalysisTool = 'quick' | 'search' | 'maps' | 'deep' | 'predictive' | 'weather';
