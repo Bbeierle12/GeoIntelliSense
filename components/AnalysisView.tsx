@@ -1,10 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+    ResponsiveContainer,
+    LineChart,
+    ComposedChart,
+    Bar,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+} from 'recharts';
 import { 
     getGroundedSearchResponse, 
     getGroundedMapsResponse, 
     getLowLatencyResponse, 
     getDeepAnalysisResponse,
-    getPredictiveAnalysisResponse
+    getPredictiveAnalysisResponse,
+    getWeatherForecastResponse
 } from '../services/geminiService';
 import type { AnalysisTool, GroundingChunk } from '../types';
 import { LightbulbIcon } from './icons/LightbulbIcon';
@@ -12,6 +27,7 @@ import { SearchIcon } from './icons/SearchIcon';
 import { MapIcon } from './icons/MapIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
 import { TrendingUpIcon } from './icons/TrendingUpIcon';
+import { CloudIcon } from './icons/CloudIcon';
 import { dashboardData, cityLocations, LocationKey } from '../data/dashboardData';
 
 const toolConfig = {
@@ -40,22 +56,37 @@ const toolConfig = {
         placeholder: 'e.g., Analyze the long-term impact of wildfires on SJV agriculture.'
     },
     predictive: {
-        name: 'Predictive Analysis',
+        name: 'Predictive AQI',
         description: 'Forecast future air quality trends using historical data. Powered by Gemini Pro.',
         icon: TrendingUpIcon,
-        placeholder: 'Select a location below and ask for a specific forecast, e.g., "Provide a detailed AQI forecast."'
+        placeholder: 'Select a location below to generate an AQI forecast.'
+    },
+    weather: {
+        name: 'Weather Forecast',
+        description: 'Forecast future temperature and precipitation. Powered by Gemini Pro.',
+        icon: CloudIcon,
+        placeholder: 'Select a location below to generate a weather forecast.'
     }
+};
+
+const parseMonthString = (monthStr: string): Date => {
+    const [month, year] = monthStr.replace("'", "").split(' ');
+    const monthIndex = new Date(Date.parse(month +" 1, 2012")).getMonth();
+    return new Date(parseInt(`20${year}`), monthIndex);
 };
 
 const AnalysisView: React.FC = () => {
     const [tool, setTool] = useState<AnalysisTool>('predictive');
     const [prompt, setPrompt] = useState('');
+    const [customFactors, setCustomFactors] = useState('');
     const [result, setResult] = useState<string | null>(null);
     const [groundingChunks, setGroundingChunks] = useState<GroundingChunk[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [location, setLocation] = useState<{ latitude: number, longitude: number } | null>(null);
     const [predictiveLocation, setPredictiveLocation] = useState<Exclude<LocationKey, 'Valley Average'>>('Bakersfield');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
 
     useEffect(() => {
@@ -72,12 +103,61 @@ const AnalysisView: React.FC = () => {
                 setLocation({ latitude: 36.7378, longitude: -119.7871 });
             }
         );
+        
+        // Set default date range for predictive tool to the last 12 months of available data.
+        const sampleData = dashboardData['Bakersfield'].historicalAqi;
+        if (sampleData.length > 0) {
+            const lastMonth = parseMonthString(sampleData[sampleData.length - 1].month);
+            const defaultStartDate = new Date(lastMonth);
+            defaultStartDate.setMonth(defaultStartDate.getMonth() - 11);
+
+            const formatToInput = (date: Date) => date.toISOString().slice(0, 7);
+            setStartDate(formatToInput(defaultStartDate));
+            setEndDate(formatToInput(lastMonth));
+        }
     }, []);
+    
+    const predictiveChartData = useMemo(() => {
+        if (!startDate || !endDate || !predictiveLocation) return [];
+
+        const locData = dashboardData[predictiveLocation];
+        if (!locData || !('historicalAqi' in locData)) return [];
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setMonth(end.getMonth() + 1); // Make end date inclusive
+
+        const filteredAqi = locData.historicalAqi.filter(d => {
+            const date = parseMonthString(d.month);
+            return date >= start && date < end;
+        });
+
+        const filteredWeather = locData.historicalWeather.filter(d => {
+            const date = parseMonthString(d.month);
+            return date >= start && date < end;
+        });
+
+        const weatherMap = new Map(filteredWeather.map(d => [d.month, d]));
+
+        return filteredAqi.map(aqiData => {
+            // FIX: Explicitly cast the value from the map to avoid 'unknown' type error.
+            // TypeScript struggles to infer the type from the dashboardData object.
+            const weatherForMonth = weatherMap.get(aqiData.month) as { avgTemp: number; precipitation: number } | undefined;
+            return {
+                month: aqiData.month,
+                avgAqi: aqiData.avgAqi,
+                avgPm25: aqiData.avgPm25,
+                avgTemp: weatherForMonth?.avgTemp,
+                precipitation: weatherForMonth?.precipitation,
+            };
+        });
+    }, [predictiveLocation, startDate, endDate]);
+
 
     const handleSubmit = useCallback(async () => {
         if (isLoading) return;
-        // The predictive tool doesn't require a prompt, but others do.
-        if (tool !== 'predictive' && !prompt) return;
+        const isForecastTool = tool === 'predictive' || tool === 'weather';
+        if (!isForecastTool && !prompt) return;
 
         setIsLoading(true);
         setResult(null);
@@ -97,6 +177,7 @@ const AnalysisView: React.FC = () => {
                 case 'maps':
                     if (!location) {
                         setError("Location not available. Please enable location services.");
+                        setIsLoading(false);
                         return;
                     }
                     const mapsRes = await getGroundedMapsResponse(prompt, location);
@@ -107,17 +188,66 @@ const AnalysisView: React.FC = () => {
                     setResult(await getDeepAnalysisResponse(prompt));
                     break;
                 case 'predictive':
+                case 'weather':
+                    if (new Date(startDate) > new Date(endDate)) {
+                        setError("Start date cannot be after end date.");
+                        setIsLoading(false);
+                        return;
+                    }
+
                     const locData = dashboardData[predictiveLocation];
                     if (!locData || !('historicalAqi' in locData)) {
                         setError(`No historical data found for ${predictiveLocation}.`);
+                        setIsLoading(false);
                         return;
                     }
-                    const resultText = await getPredictiveAnalysisResponse(
-                        predictiveLocation,
-                        locData.historicalAqi,
-                        locData.historicalWeather
-                    );
-                    setResult(resultText);
+
+                    const start = new Date(startDate);
+                    const end = new Date(endDate);
+                    end.setMonth(end.getMonth() + 1); // Make end date inclusive
+                    
+                     const filteredWeather = locData.historicalWeather.filter(d => {
+                        const date = parseMonthString(d.month);
+                        return date >= start && date < end;
+                    });
+                    
+                    if (filteredWeather.length === 0) {
+                        setError("No historical weather data available for the selected date range.");
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    if (tool === 'weather') {
+                         const resultText = await getWeatherForecastResponse(
+                            predictiveLocation,
+                            filteredWeather,
+                            customFactors,
+                            startDate,
+                            endDate
+                        );
+                        setResult(resultText);
+                    } else { // 'predictive'
+                        const filteredAqi = locData.historicalAqi.filter(d => {
+                            const date = parseMonthString(d.month);
+                            return date >= start && date < end;
+                        });
+
+                        if (filteredAqi.length === 0) {
+                            setError("No historical AQI data available for the selected date range.");
+                            setIsLoading(false);
+                            return;
+                        }
+
+                        const resultText = await getPredictiveAnalysisResponse(
+                            predictiveLocation,
+                            filteredAqi,
+                            filteredWeather,
+                            customFactors,
+                            startDate,
+                            endDate
+                        );
+                        setResult(resultText);
+                    }
                     break;
             }
         } catch (e: any) {
@@ -125,9 +255,10 @@ const AnalysisView: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [prompt, isLoading, tool, location, predictiveLocation]);
+    }, [prompt, isLoading, tool, location, predictiveLocation, customFactors, startDate, endDate]);
 
     const currentTool = toolConfig[tool];
+    const isForecastTool = tool === 'predictive' || tool === 'weather';
     
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -136,7 +267,7 @@ const AnalysisView: React.FC = () => {
                 <p className="text-slate-400">Select a tool to perform a specific type of analysis.</p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 md:gap-4">
                 {(Object.keys(toolConfig) as AnalysisTool[]).map(key => {
                     const t = toolConfig[key];
                     return (
@@ -157,33 +288,118 @@ const AnalysisView: React.FC = () => {
                     </h3>
                     <p className="text-slate-400 text-sm">{currentTool.description}</p>
                 </div>
-                 {tool === 'predictive' && (
-                    <div className="space-y-2">
-                        <label htmlFor="location-select" className="block text-sm font-medium text-slate-400">
-                            Select Location for Prediction:
-                        </label>
-                        <select
-                            id="location-select"
-                            value={predictiveLocation}
-                            onChange={(e) => setPredictiveLocation(e.target.value as Exclude<LocationKey, 'Valley Average'>)}
-                            className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                        >
-                            {cityLocations.map(loc => (
-                                <option key={loc} value={loc}>{loc}</option>
-                            ))}
-                        </select>
+                 {isForecastTool ? (
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="location-select" className="block text-sm font-medium text-slate-400 mb-2">
+                                Select Location for Prediction:
+                            </label>
+                            <select
+                                id="location-select"
+                                value={predictiveLocation}
+                                onChange={(e) => setPredictiveLocation(e.target.value as Exclude<LocationKey, 'Valley Average'>)}
+                                className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                            >
+                                {cityLocations.map(loc => (
+                                    <option key={loc} value={loc}>{loc}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           <div>
+                                <label htmlFor="start-date" className="block text-sm font-medium text-slate-400 mb-2">
+                                    Historical Data Start Date:
+                                </label>
+                                <input
+                                    type="month"
+                                    id="start-date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                                    disabled={isLoading}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="end-date" className="block text-sm font-medium text-slate-400 mb-2">
+                                    Historical Data End Date:
+                                </label>
+                                <input
+                                    type="month"
+                                    id="end-date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                                    disabled={isLoading}
+                                />
+                            </div>
+                        </div>
+
+                        {predictiveChartData.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-brand-secondary">
+                                <h4 className="text-lg font-semibold text-slate-300 mb-2">Data Preview for {predictiveLocation}</h4>
+                                <div className={`grid grid-cols-1 ${tool === 'predictive' ? 'md:grid-cols-2' : ''} gap-4`}>
+                                    {tool === 'predictive' && (
+                                        <div className="bg-brand-bg-dark p-2 rounded-md">
+                                            <h5 className="text-sm text-center text-slate-400 font-semibold mb-2">Air Quality</h5>
+                                            <ResponsiveContainer width="100%" height={200}>
+                                                <LineChart data={predictiveChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                                    <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
+                                                    <YAxis stroke="#94a3b8" fontSize={12} />
+                                                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }} />
+                                                    <Legend wrapperStyle={{fontSize: "12px"}}/>
+                                                    <Line type="monotone" dataKey="avgAqi" stroke="#ef4444" name="AQI" strokeWidth={2}/>
+                                                    <Line type="monotone" dataKey="avgPm25" stroke="#f97316" name="PM2.5" strokeWidth={2}/>
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    )}
+                                    <div className="bg-brand-bg-dark p-2 rounded-md">
+                                        <h5 className="text-sm text-center text-slate-400 font-semibold mb-2">Weather</h5>
+                                        <ResponsiveContainer width="100%" height={200}>
+                                            <ComposedChart data={predictiveChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                                <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
+                                                <YAxis yAxisId="left" stroke="#eab308" fontSize={12} />
+                                                <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" fontSize={12} />
+                                                <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }} />
+                                                <Legend wrapperStyle={{fontSize: "12px"}}/>
+                                                <Bar yAxisId="right" dataKey="precipitation" fill="#3b82f6" name="Precip (in)" />
+                                                <Line yAxisId="left" type="monotone" dataKey="avgTemp" stroke="#eab308" name="Temp (°F)" strokeWidth={2} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                         <div>
+                            <label htmlFor="custom-factors" className="block text-sm font-medium text-slate-400 mb-2">
+                                Custom Influencing Factors (Optional):
+                            </label>
+                            <textarea
+                                id="custom-factors"
+                                value={customFactors}
+                                onChange={(e) => setCustomFactors(e.target.value)}
+                                placeholder="e.g., Mention upcoming holiday traffic, planned agricultural burns, or unusual weather patterns like a heatwave."
+                                className="w-full h-24 p-3 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary resize-y"
+                                disabled={isLoading}
+                            />
+                        </div>
                     </div>
-                )}
-                <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder={currentTool.placeholder}
-                    className={`w-full h-24 p-3 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary resize-y ${tool === 'predictive' ? 'h-24' : 'h-32'}`}
-                    disabled={isLoading}
-                />
+                 ) : (
+                    <textarea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        placeholder={currentTool.placeholder}
+                        className="w-full h-32 p-3 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary resize-y"
+                        disabled={isLoading}
+                    />
+                 )}
                 <button
                     onClick={handleSubmit}
-                    disabled={isLoading || (tool !== 'predictive' && !prompt)}
+                    disabled={isLoading || (!isForecastTool && !prompt)}
                     className="w-full py-3 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                 >
                     {isLoading ? (

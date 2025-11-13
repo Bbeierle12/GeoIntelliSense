@@ -3,6 +3,7 @@ import type { ViewType } from '../types';
 import { DashboardIcon } from './icons/DashboardIcon';
 import { ChatIcon } from './icons/ChatIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
+import { MapIcon } from './icons/MapIcon';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -14,6 +15,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
     { id: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
     { id: 'chat', label: 'Chat Analyst', icon: ChatIcon },
     { id: 'analysis', label: 'Advanced Analysis', icon: SparklesIcon },
+    { id: 'maps', label: 'Interactive Map', icon: MapIcon },
   ] as const;
 
   return (

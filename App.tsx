@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ChatView from './components/ChatView';
 import AnalysisView from './components/AnalysisView';
+import MapView from './components/MapView';
 import type { ViewType } from './types';
 
 const App: React.FC = () => {
@@ -17,6 +18,8 @@ const App: React.FC = () => {
         return <ChatView />;
       case 'analysis':
         return <AnalysisView />;
+      case 'maps':
+        return <MapView />;
       default:
         return <Dashboard />;
     }

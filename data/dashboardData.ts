@@ -10,6 +10,7 @@ export const dashboardData = {
       { name: 'Modesto', aqi: 125, pm25: 45 },
       { name: 'Stockton', aqi: 98, pm25: 35 },
     ],
+    currentWeather: { temp: 94, humidity: 28 },
     weatherForecast: [
       { day: 'Mon', temp: 95, humidity: 25 },
       { day: 'Tue', temp: 98, humidity: 22 },
@@ -27,7 +28,9 @@ export const dashboardData = {
     ],
   },
   'Bakersfield': {
+    coords: { lat: 35.3733, lng: -119.0187 },
     currentAqi: { aqi: 155, pm25: 65 },
+    currentWeather: { temp: 98, humidity: 23 },
     weatherForecast: [
         { day: 'Mon', temp: 99, humidity: 22 }, { day: 'Tue', temp: 102, humidity: 20 }, { day: 'Wed', temp: 105, humidity: 18 }, { day: 'Thu', temp: 104, humidity: 19 }, { day: 'Fri', temp: 101, humidity: 21 }, { day: 'Sat', temp: 98, humidity: 25 }, { day: 'Sun', temp: 99, humidity: 24 },
     ],
@@ -39,7 +42,9 @@ export const dashboardData = {
     ],
   },
   'Fresno': {
+    coords: { lat: 36.7378, lng: -119.7871 },
     currentAqi: { aqi: 140, pm25: 55 },
+    currentWeather: { temp: 95, humidity: 25 },
     weatherForecast: [
         { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
     ],
@@ -51,7 +56,9 @@ export const dashboardData = {
     ],
   },
   'Visalia': {
+    coords: { lat: 36.3302, lng: -119.2921 },
     currentAqi: { aqi: 148, pm25: 60 },
+    currentWeather: { temp: 96, humidity: 24 },
     weatherForecast: [
         { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
     ],
@@ -63,7 +70,9 @@ export const dashboardData = {
     ],
   },
     'Merced': {
+    coords: { lat: 37.3022, lng: -120.4830 },
     currentAqi: { aqi: 110, pm25: 40 },
+    currentWeather: { temp: 94, humidity: 28 },
     weatherForecast: [
         { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
     ],
@@ -75,7 +84,9 @@ export const dashboardData = {
     ],
   },
     'Modesto': {
+    coords: { lat: 37.6391, lng: -120.9969 },
     currentAqi: { aqi: 125, pm25: 45 },
+    currentWeather: { temp: 91, humidity: 32 },
     weatherForecast: [
         { day: 'Mon', temp: 92, humidity: 30 }, { day: 'Tue', temp: 94, humidity: 28 }, { day: 'Wed', temp: 97, humidity: 25 }, { day: 'Thu', temp: 96, humidity: 26 }, { day: 'Fri', temp: 94, humidity: 29 }, { day: 'Sat', temp: 91, humidity: 33 }, { day: 'Sun', temp: 92, humidity: 31 },
     ],
@@ -87,7 +98,9 @@ export const dashboardData = {
     ],
   },
   'Stockton': {
+    coords: { lat: 37.9577, lng: -121.2908 },
     currentAqi: { aqi: 98, pm25: 35 },
+    currentWeather: { temp: 90, humidity: 34 },
     weatherForecast: [
         { day: 'Mon', temp: 92, humidity: 30 }, { day: 'Tue', temp: 94, humidity: 28 }, { day: 'Wed', temp: 97, humidity: 25 }, { day: 'Thu', temp: 96, humidity: 26 }, { day: 'Fri', temp: 94, humidity: 29 }, { day: 'Sat', temp: 91, humidity: 33 }, { day: 'Sun', temp: 92, humidity: 31 },
     ],

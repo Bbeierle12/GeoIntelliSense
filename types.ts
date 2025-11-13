@@ -1,4 +1,4 @@
-export type ViewType = 'dashboard' | 'chat' | 'analysis';
+export type ViewType = 'dashboard' | 'chat' | 'analysis' | 'maps';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -23,4 +23,4 @@ export interface GroundingChunk {
   }
 }
 
-export type AnalysisTool = 'quick' | 'search' | 'maps' | 'deep' | 'predictive';
+export type AnalysisTool = 'quick' | 'search' | 'maps' | 'deep' | 'predictive' | 'weather';
