@@ -65,20 +65,20 @@ const Dashboard: React.FC = () => {
     const checkedLocations = new Set<string>();
     
     selectedLocations.forEach(loc => {
-        if (loc === 'Valley Average') {
-            dashboardData[loc].regionalAqi.forEach(city => {
+        const locData = dashboardData[loc];
+        if (!locData) return; // Robustness check
+
+        if (loc === 'Valley Average' && 'regionalAqi' in locData) {
+            locData.regionalAqi.forEach(city => {
                 if (city.aqi > 100 && !checkedLocations.has(city.name)) {
                     alerts.push({ name: city.name, aqi: city.aqi });
                     checkedLocations.add(city.name);
                 }
             });
-        } else {
+        } else if ('currentAqi' in locData && locData.currentAqi && locData.currentAqi.aqi > 100) {
             if (!checkedLocations.has(loc)) {
-                const data = dashboardData[loc];
-                if ('currentAqi' in data && data.currentAqi && data.currentAqi.aqi > 100) {
-                    alerts.push({ name: loc, aqi: data.currentAqi.aqi });
-                    checkedLocations.add(loc);
-                }
+                alerts.push({ name: loc, aqi: locData.currentAqi.aqi });
+                checkedLocations.add(loc);
             }
         }
     });
@@ -89,15 +89,18 @@ const Dashboard: React.FC = () => {
   const mergedForecastData = useMemo(() => {
     const dayMap = new Map<string, Record<string, any>>();
     selectedLocations.forEach(loc => {
-        const locData = dashboardData[loc].weatherForecast;
-        locData.forEach(dataPoint => {
-            if (!dayMap.has(dataPoint.day)) {
-                dayMap.set(dataPoint.day, { day: dataPoint.day });
-            }
-            const entry = dayMap.get(dataPoint.day)!;
-            entry[`${loc}_temp`] = dataPoint.temp;
-            entry[`${loc}_humidity`] = dataPoint.humidity;
-        });
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'weatherForecast' in locEntry) {
+            const locData = locEntry.weatherForecast;
+            locData.forEach(dataPoint => {
+                if (!dayMap.has(dataPoint.day)) {
+                    dayMap.set(dataPoint.day, { day: dataPoint.day });
+                }
+                const entry = dayMap.get(dataPoint.day)!;
+                entry[`${loc}_temp`] = dataPoint.temp;
+                entry[`${loc}_humidity`] = dataPoint.humidity;
+            });
+        }
     });
     const dayOrder = dashboardData['Valley Average'].weatherForecast.map(d => d.day);
     return dayOrder.map(day => dayMap.get(day)).filter(Boolean);
@@ -125,13 +128,16 @@ const Dashboard: React.FC = () => {
     
     const monthMap = new Map<string, Record<string, any>>();
     selectedLocations.forEach(loc => {
-        const locData = dashboardData[loc].historicalAqi;
-        locData.forEach(dataPoint => {
-            if (!monthMap.has(dataPoint.month)) {
-                monthMap.set(dataPoint.month, { month: dataPoint.month });
-            }
-            monthMap.get(dataPoint.month)![loc] = dataPoint.avgAqi;
-        });
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'historicalAqi' in locEntry) {
+            const locData = locEntry.historicalAqi;
+            locData.forEach(dataPoint => {
+                if (!monthMap.has(dataPoint.month)) {
+                    monthMap.set(dataPoint.month, { month: dataPoint.month });
+                }
+                monthMap.get(dataPoint.month)![loc] = dataPoint.avgAqi;
+            });
+        }
     });
     return filteredMonthOrder.map(month => monthMap.get(month)).filter(Boolean);
   }, [selectedLocations, getFilteredHistoricalData]);
@@ -142,13 +148,16 @@ const Dashboard: React.FC = () => {
 
     const monthMap = new Map<string, Record<string, any>>();
     selectedLocations.forEach(loc => {
-        const locData = dashboardData[loc].historicalAqi;
-        locData.forEach(dataPoint => {
-            if (!monthMap.has(dataPoint.month)) {
-                monthMap.set(dataPoint.month, { month: dataPoint.month });
-            }
-            monthMap.get(dataPoint.month)![loc] = dataPoint.avgPm25;
-        });
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'historicalAqi' in locEntry) {
+            const locData = locEntry.historicalAqi;
+            locData.forEach(dataPoint => {
+                if (!monthMap.has(dataPoint.month)) {
+                    monthMap.set(dataPoint.month, { month: dataPoint.month });
+                }
+                monthMap.get(dataPoint.month)![loc] = dataPoint.avgPm25;
+            });
+        }
     });
     return filteredMonthOrder.map(month => monthMap.get(month)).filter(Boolean);
   }, [selectedLocations, getFilteredHistoricalData]);
@@ -159,15 +168,18 @@ const Dashboard: React.FC = () => {
 
     const monthMap = new Map<string, Record<string, any>>();
     selectedLocations.forEach(loc => {
-        const locData = dashboardData[loc].historicalWeather;
-        locData.forEach(dataPoint => {
-            if (!monthMap.has(dataPoint.month)) {
-                monthMap.set(dataPoint.month, { month: dataPoint.month });
-            }
-            const entry = monthMap.get(dataPoint.month)!;
-            entry[`${loc}_temp`] = dataPoint.avgTemp;
-            entry[`${loc}_precip`] = dataPoint.precipitation;
-        });
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'historicalWeather' in locEntry) {
+            const locData = locEntry.historicalWeather;
+            locData.forEach(dataPoint => {
+                if (!monthMap.has(dataPoint.month)) {
+                    monthMap.set(dataPoint.month, { month: dataPoint.month });
+                }
+                const entry = monthMap.get(dataPoint.month)!;
+                entry[`${loc}_temp`] = dataPoint.avgTemp;
+                entry[`${loc}_precip`] = dataPoint.precipitation;
+            });
+        }
     });
     return filteredMonthOrder.map(month => monthMap.get(month)).filter(Boolean);
   }, [selectedLocations, getFilteredHistoricalData]);
@@ -176,6 +188,13 @@ const Dashboard: React.FC = () => {
     if (!isComparisonMode) {
       const location = selectedLocations[0];
       const data = dashboardData[location];
+      
+      // FIX: Add a safety check to ensure `data` exists before trying to access its properties,
+      // which prevents the app from crashing if data is unexpectedly missing.
+      if (!data) {
+        return null;
+      }
+
       if (location === 'Valley Average') {
         return (
           <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
@@ -200,7 +219,7 @@ const Dashboard: React.FC = () => {
                 )}
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={data.regionalAqi}>
+                  <BarChart data={'regionalAqi' in data && Array.isArray(data.regionalAqi) ? data.regionalAqi : []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
                     <XAxis dataKey="name" stroke="#94a3b8" />
                     <YAxis stroke="#94a3b8" />
@@ -213,25 +232,24 @@ const Dashboard: React.FC = () => {
           </div>
         )
       } else {
-        const currentData = dashboardData[location];
-        if ('currentAqi' in currentData) {
+        if ('currentAqi' in data) {
             return (
                 <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-slate-200 mb-2">Current Conditions in {location}</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center py-4">
                         <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
-                            <p className={`text-5xl font-bold ${getAqiColor(currentData.currentAqi.aqi)}`}>{currentData.currentAqi.aqi}</p>
+                            <p className={`text-5xl font-bold ${getAqiColor(data.currentAqi.aqi)}`}>{data.currentAqi.aqi}</p>
                             <p className="text-slate-400 font-semibold mt-1">AQI</p>
                         </div>
                         <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
-                            <p className={`text-5xl font-bold ${getAqiColor(currentData.currentAqi.pm25 * 2.5)}`}>{currentData.currentAqi.pm25}</p> 
+                            <p className={`text-5xl font-bold ${getAqiColor(data.currentAqi.pm25 * 2.5)}`}>{data.currentAqi.pm25}</p> 
                             <p className="text-slate-400 font-semibold mt-1 text-sm">PM2.5 (&micro;g/m³)</p>
                         </div>
-                         { 'currentWeather' in currentData && currentData.currentWeather && (
+                         { 'currentWeather' in data && data.currentWeather && (
                             <>
                                 <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
                                      <p className="text-5xl font-bold text-slate-200 flex items-baseline justify-center">
-                                        {currentData.currentWeather.temp}<span className="text-3xl">°F</span>
+                                        {data.currentWeather.temp}<span className="text-3xl">°F</span>
                                     </p>
                                     <p className="text-slate-400 font-semibold flex items-center gap-1.5 mt-1">
                                         <TemperatureIcon className="w-5 h-5 text-red-400" />
@@ -240,12 +258,12 @@ const Dashboard: React.FC = () => {
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-brand-bg-dark/50">
                                      <p className="text-5xl font-bold text-slate-200 flex items-baseline justify-center">
-                                        {currentData.currentWeather.humidity}<span className="text-3xl">%</span>
+                                        {data.currentWeather.humidity}<span className="text-3xl">%</span>
                                     </p>
                                      <p className="text-slate-400 font-semibold flex items-center gap-1.5 mt-1">
                                         <HumidityIcon className="w-5 h-5 text-sky-400" />
                                         Humidity
-                                    </p>
+                                     </p>
                                 </div>
                             </>
                          )}
@@ -265,7 +283,7 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4">
             {cityLocations.map(loc => {
                 const data = dashboardData[loc];
-                if ('currentAqi' in data) {
+                if (data && 'currentAqi' in data) {
                     return (
                         <div key={loc} className="text-center bg-brand-bg-dark p-3 rounded-md">
                             <h4 className="font-bold text-slate-300">{loc}</h4>

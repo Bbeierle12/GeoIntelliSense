@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MarkerClusterer } from '@googlemaps/markerclusterer';
 import { dashboardData, cityLocations } from '../data/dashboardData';
 import { MapIcon } from './icons/MapIcon';
 import { KeyIcon } from './icons/KeyIcon';
@@ -101,90 +102,205 @@ const generateSparkline = (data: { month: string; avgAqi: number }[]): string =>
 };
 
 const mapStyles = [
-    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-    {
-      featureType: "administrative.locality",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#d59563" }],
-    },
-    {
-      featureType: "poi",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#d59563" }],
-    },
-    {
-      featureType: "poi.park",
-      elementType: "geometry",
-      stylers: [{ color: "#263c3f" }],
-    },
-    {
-      featureType: "poi.park",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#6b9a76" }],
-    },
-    {
-      featureType: "road",
-      elementType: "geometry",
-      stylers: [{ color: "#38414e" }],
-    },
-    {
-      featureType: "road",
-      elementType: "geometry.stroke",
-      stylers: [{ color: "#212a37" }],
-    },
-    {
-      featureType: "road",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#9ca5b3" }],
-    },
-    {
-      featureType: "road.highway",
-      elementType: "geometry",
-      stylers: [{ color: "#746855" }],
-    },
-    {
-      featureType: "road.highway",
-      elementType: "geometry.stroke",
-      stylers: [{ color: "#1f2835" }],
-    },
-    {
-      featureType: "road.highway",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#f3d19c" }],
-    },
-    {
-      featureType: "transit",
-      elementType: "geometry",
-      stylers: [{ color: "#2f3948" }],
-    },
-    {
-      featureType: "transit.station",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#d59563" }],
-    },
-    {
-      featureType: "water",
-      elementType: "geometry",
-      stylers: [{ color: "#17263c" }],
-    },
-    {
-      featureType: "water",
-      elementType: "labels.text.fill",
-      stylers: [{ color: "#515c6d" }],
-    },
-    {
-      featureType: "water",
-      elementType: "labels.text.stroke",
-      stylers: [{ color: "#17263c" }],
-    },
+  {
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#1e293b"
+      }
+    ]
+  },
+  {
+    "elementType": "labels.icon",
+    "stylers": [
+      {
+        "visibility": "off"
+      }
+    ]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#94a3b8"
+      }
+    ]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [
+      {
+        "color": "#1e293b"
+      }
+    ]
+  },
+  {
+    "featureType": "administrative",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#475569"
+      }
+    ]
+  },
+  {
+    "featureType": "administrative.country",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#e2e8f0"
+      }
+    ]
+  },
+  {
+    "featureType": "administrative.land_parcel",
+    "stylers": [
+      {
+        "visibility": "off"
+      }
+    ]
+  },
+  {
+    "featureType": "administrative.locality",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#e2e8f0"
+      }
+    ]
+  },
+  {
+    "featureType": "poi",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#94a3b8"
+      }
+    ]
+  },
+  {
+    "featureType": "poi.park",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#0f172a"
+      }
+    ]
+  },
+  {
+    "featureType": "poi.park",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#64748b"
+      }
+    ]
+  },
+  {
+    "featureType": "poi.park",
+    "elementType": "labels.text.stroke",
+    "stylers": [
+      {
+        "color": "#0f172a"
+      }
+    ]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.fill",
+    "stylers": [
+      {
+        "color": "#334155"
+      }
+    ]
+  },
+  {
+    "featureType": "road",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#94a3b8"
+      }
+    ]
+  },
+  {
+    "featureType": "road.arterial",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#475569"
+      }
+    ]
+  },
+  {
+    "featureType": "road.highway",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#0284c7"
+      }
+    ]
+  },
+  {
+    "featureType": "road.highway",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#e2e8f0"
+      }
+    ]
+  },
+  {
+    "featureType": "road.highway.controlled_access",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#0ea5e9"
+      }
+    ]
+  },
+  {
+    "featureType": "road.local",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#64748b"
+      }
+    ]
+  },
+  {
+    "featureType": "transit",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#94a3b8"
+      }
+    ]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#0f172a"
+      }
+    ]
+  },
+  {
+    "featureType": "water",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      {
+        "color": "#475569"
+      }
+    ]
+  }
 ];
 
 const MapView: React.FC = () => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<any>(null);
-    const markersRef = useRef<Map<string, any>>(new Map());
+    const markerClustererRef = useRef<any>(null);
     const infoWindowsRef = useRef<Map<string, any>>(new Map());
     const activeInfoWindowRef = useRef<any>(null);
     
@@ -208,7 +324,7 @@ const MapView: React.FC = () => {
 
         const script = document.createElement('script');
         script.id = 'google-maps-script';
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.API_KEY}`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.API_KEY}&libraries=places`;
         script.onload = () => {
             isScriptLoaded.current = true;
             setIsApiReady(true);
@@ -266,7 +382,11 @@ const MapView: React.FC = () => {
                     zoomControl: true,
                 });
                 mapInstanceRef.current = map;
-                markersRef.current.clear();
+                
+                // Clear previous clusterer and info windows
+                if (markerClustererRef.current) {
+                    markerClustererRef.current.clearMarkers();
+                }
                 infoWindowsRef.current.clear();
 
                 if (userLocation) {
@@ -285,14 +405,15 @@ const MapView: React.FC = () => {
                     });
                 }
 
-                cityLocations.forEach(city => {
+                const markers = cityLocations.map(city => {
                     const cityData = dashboardData[city];
-                    if ('coords' in cityData && 'currentAqi' in cityData && 'currentWeather' in cityData) {
+                    if (cityData && 'coords' in cityData && 'currentAqi' in cityData && 'currentWeather' in cityData) {
                         const aqiValue = cityData.currentAqi.aqi;
+                        const labelColor = aqiValue > 200 ? '#ffffff' : '#1e293b';
 
                         const marker = new window.google.maps.Marker({
                             position: cityData.coords,
-                            map: map,
+                            // NOTE: map property is not set. Clusterer will handle placing it.
                             title: `${city} - AQI: ${aqiValue}`,
                             icon: {
                                 path: window.google.maps.SymbolPath.CIRCLE,
@@ -304,7 +425,7 @@ const MapView: React.FC = () => {
                             },
                             label: {
                                 text: String(aqiValue),
-                                color: '#1e293b',
+                                color: labelColor,
                                 fontSize: '12px',
                                 fontWeight: 'bold',
                             }
@@ -339,7 +460,6 @@ const MapView: React.FC = () => {
                             `,
                         });
 
-                        markersRef.current.set(city, marker);
                         infoWindowsRef.current.set(city, infoWindow);
 
                         marker.addListener('click', () => {
@@ -349,9 +469,16 @@ const MapView: React.FC = () => {
                             infoWindow.open(map, marker);
                             activeInfoWindowRef.current = infoWindow;
                         });
+
+                        return marker;
                     }
-                });
-                 map.addListener('click', () => {
+                    return null;
+                }).filter((marker): marker is any => marker !== null);
+
+                // Add a marker clusterer to manage the markers.
+                markerClustererRef.current = new MarkerClusterer({ markers, map });
+                
+                map.addListener('click', () => {
                     if (activeInfoWindowRef.current) {
                         activeInfoWindowRef.current.close();
                         activeInfoWindowRef.current = null;

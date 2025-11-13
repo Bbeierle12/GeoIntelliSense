@@ -121,7 +121,7 @@ const AnalysisView: React.FC = () => {
         if (!startDate || !endDate || !predictiveLocation) return [];
 
         const locData = dashboardData[predictiveLocation];
-        if (!locData || !('historicalAqi' in locData)) return [];
+        if (!locData || !('historicalAqi' in locData) || !('historicalWeather' in locData)) return [];
 
         const start = new Date(startDate);
         const end = new Date(endDate);
@@ -196,8 +196,8 @@ const AnalysisView: React.FC = () => {
                     }
 
                     const locData = dashboardData[predictiveLocation];
-                    if (!locData || !('historicalAqi' in locData)) {
-                        setError(`No historical data found for ${predictiveLocation}.`);
+                    if (!locData || !('historicalAqi' in locData) || !('historicalWeather' in locData)) {
+                        setError(`No complete historical data found for ${predictiveLocation}.`);
                         setIsLoading(false);
                         return;
                     }

@@ -12,7 +12,8 @@
     "react-dom": "^19.2.0",
     "recharts": "^3.3.0",
     "@google/genai": "^1.27.0",
-    "react": "^19.2.0"
+    "react": "^19.2.0",
+    "@googlemaps/markerclusterer": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
