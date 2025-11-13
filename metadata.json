@@ -1,0 +1,7 @@
+{
+  "name": "GeoIntelliSense: San Joaquin Valley",
+  "description": "An AI-powered geospatial intelligence application for analyzing the relationship between weather patterns and air quality in California's San Joaquin Valley, using public data and advanced Gemini models.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
