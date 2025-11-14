@@ -5,12 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "@google/genai": "1.27.0",
     "@googlemaps/markerclusterer": "2.6.2",
+    "cors": "2.8.5",
+    "dotenv": "16.4.5",
+    "express": "4.21.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "recharts": "3.3.0"
@@ -20,6 +26,7 @@
     "@types/react": "19.2.4",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.0.0",
+    "concurrently": "9.1.2",
     "typescript": "5.8.2",
     "vite": "6.2.0"
   }

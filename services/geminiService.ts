@@ -1,241 +1,270 @@
+/**
+ * Gemini API Service (Backend Proxy)
+ *
+ * This service makes requests to the backend server instead of directly
+ * calling the Gemini API. This keeps the API key secure on the server.
+ */
 
+import type { GroundingChunk } from '../types';
 
-import { GoogleGenAI, Chat, GenerateContentResponse, GroundingChunk } from "@google/genai";
+// Get API URL from environment variable
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-let ai: GoogleGenAI;
-let chat: Chat;
-
-function getAi() {
-    if (!ai) {
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-    }
-    return ai;
+/**
+ * Helper function to handle API errors
+ */
+function handleApiError(error: unknown, defaultMessage: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return defaultMessage;
 }
 
-function initializeChat() {
-    const aiInstance = getAi();
-    chat = aiInstance.chats.create({
-        model: 'gemini-2.5-flash',
-        config: {
-            systemInstruction: 'You are an expert geospatial and environmental analyst specializing in the San Joaquin Valley. Provide clear, data-driven answers.',
-        },
-    });
+/**
+ * Chat message type for history
+ */
+interface ChatMessage {
+  role: 'user' | 'model';
+  parts: { text: string }[];
 }
 
+// Store chat history in memory
+let chatHistory: ChatMessage[] = [];
+
+/**
+ * Get chat response from backend
+ */
 export const getChatResponse = async (message: string): Promise<string> => {
-    if (!chat) {
-        initializeChat();
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        history: chatHistory
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get chat response');
     }
-    try {
-        const response: GenerateContentResponse = await chat.sendMessage({ message });
-        return response.text;
-    } catch (error) {
-        console.error("Error in getChatResponse:", error);
-        return "Sorry, I encountered an error. Please try again.";
-    }
+
+    const data = await response.json();
+
+    // Update chat history
+    chatHistory.push(
+      { role: 'user', parts: [{ text: message }] },
+      { role: 'model', parts: [{ text: data.text }] }
+    );
+
+    return data.text;
+  } catch (error) {
+    console.error('Error in getChatResponse:', error);
+    return handleApiError(error, 'Sorry, I encountered an error. Please try again.');
+  }
 };
 
-export const getGroundedSearchResponse = async (prompt: string): Promise<{ text: string, groundingChunks: GroundingChunk[] }> => {
-    const aiInstance = getAi();
-    try {
-        const response = await aiInstance.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                tools: [{ googleSearch: {} }],
-            },
-        });
-        const text = response.text;
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        return { text, groundingChunks };
-    } catch (error) {
-        console.error("Error in getGroundedSearchResponse:", error);
-        return { text: "Failed to get a grounded response.", groundingChunks: [] };
+/**
+ * Get grounded search response (with web search)
+ */
+export const getGroundedSearchResponse = async (
+  prompt: string
+): Promise<{ text: string; groundingChunks: GroundingChunk[] }> => {
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get search response');
     }
+
+    const data = await response.json();
+    return {
+      text: data.text,
+      groundingChunks: data.groundingChunks || []
+    };
+  } catch (error) {
+    console.error('Error in getGroundedSearchResponse:', error);
+    return {
+      text: handleApiError(error, 'Failed to get a grounded response.'),
+      groundingChunks: []
+    };
+  }
 };
 
-export const getGroundedMapsResponse = async (prompt: string, location: { latitude: number; longitude: number }): Promise<{ text: string, groundingChunks: GroundingChunk[] }> => {
-    const aiInstance = getAi();
-    try {
-        const response = await aiInstance.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                tools: [{ googleMaps: {} }],
-                toolConfig: {
-                    retrievalConfig: {
-                        latLng: location,
-                    }
-                }
-            },
-        });
-        const text = response.text;
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        return { text, groundingChunks };
-    } catch (error) {
-        console.error("Error in getGroundedMapsResponse:", error);
-        return { text: "Failed to get a map-grounded response. Please ensure location permissions are enabled.", groundingChunks: [] };
+/**
+ * Get grounded maps response (with Google Maps integration)
+ */
+export const getGroundedMapsResponse = async (
+  prompt: string,
+  location: { latitude: number; longitude: number }
+): Promise<{ text: string; groundingChunks: GroundingChunk[] }> => {
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/maps`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt, location }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get maps response');
     }
+
+    const data = await response.json();
+    return {
+      text: data.text,
+      groundingChunks: data.groundingChunks || []
+    };
+  } catch (error) {
+    console.error('Error in getGroundedMapsResponse:', error);
+    return {
+      text: handleApiError(
+        error,
+        'Failed to get a map-grounded response. Please ensure location permissions are enabled.'
+      ),
+      groundingChunks: []
+    };
+  }
 };
 
+/**
+ * Get low latency response (Quick Insight)
+ */
 export const getLowLatencyResponse = async (prompt: string): Promise<string> => {
-    const aiInstance = getAi();
-    try {
-        const response = await aiInstance.models.generateContent({
-            // FIX: Use the correct model name for gemini flash lite.
-            model: "gemini-flash-lite-latest",
-            contents: prompt,
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Error in getLowLatencyResponse:", error);
-        return "Failed to get a low-latency response.";
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/quick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get quick response');
     }
+
+    const data = await response.json();
+    return data.text;
+  } catch (error) {
+    console.error('Error in getLowLatencyResponse:', error);
+    return handleApiError(error, 'Failed to get a low-latency response.');
+  }
 };
 
+/**
+ * Get deep analysis response (with extended thinking)
+ */
 export const getDeepAnalysisResponse = async (prompt: string): Promise<string> => {
-    const aiInstance = getAi();
-    try {
-        const response = await aiInstance.models.generateContent({
-            model: "gemini-2.5-pro",
-            contents: prompt,
-            config: {
-                thinkingConfig: { thinkingBudget: 32768 }
-            },
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Error in getDeepAnalysisResponse:", error);
-        return "Failed to get a deep analysis response.";
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/deep`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get deep analysis');
     }
+
+    const data = await response.json();
+    return data.text;
+  } catch (error) {
+    console.error('Error in getDeepAnalysisResponse:', error);
+    return handleApiError(error, 'Failed to get a deep analysis response.');
+  }
 };
 
+/**
+ * Get predictive analysis response (AQI forecasting)
+ */
 export const getPredictiveAnalysisResponse = async (
-    locationName: string,
-    historicalAqi: { month: string; avgAqi: number; avgPm25: number }[],
-    historicalWeather: { month: string; avgTemp: number; precipitation: number }[],
-    customFactors: string,
-    startDate: string,
-    endDate: string
+  locationName: string,
+  historicalAqi: { month: string; avgAqi: number; avgPm25: number }[],
+  historicalWeather: { month: string; avgTemp: number; precipitation: number }[],
+  customFactors: string,
+  startDate: string,
+  endDate: string
 ): Promise<string> => {
-    const aiInstance = getAi();
-    
-    const combinedHistoricalData = historicalAqi.map((aqiData, index) => ({
-        ...aqiData,
-        ...historicalWeather[index],
-    }));
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/predictive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        location: locationName,
+        aqiData: historicalAqi,
+        weatherData: historicalWeather,
+        customFactors,
+        startDate,
+        endDate
+      }),
+    });
 
-    const customFactorsSection = customFactors.trim() 
-    ? `
-**User-Provided Influencing Factors:**
-Please take the following user-provided context into account:
-\`\`\`
-${customFactors}
-\`\`\`
-` 
-    : '';
-
-    const prompt = `
-You are an expert environmental data scientist specializing in California's San Joaquin Valley. Your task is to provide a predictive analysis of air quality and weather trends for the next three months.
-
-**Location:** ${locationName}
-
-**Provided Historical Data:**
-**Date Range of Data:** ${startDate} to ${endDate}
-\`\`\`json
-${JSON.stringify(combinedHistoricalData, null, 2)}
-\`\`\`
-${customFactorsSection}
-**Instructions:**
-Based on the provided historical data, general seasonal patterns for the region, and any user-provided factors, generate a detailed forecast for the next 3 months.
-
-Present the forecast in a clear, well-structured Markdown format with distinct sections:
-
-**1. Air Quality Forecast:**
-*   **Predicted AQI Trend:** Forecast the likely average AQI for each of the next three months, explaining the reasoning (e.g., heat, agricultural activity, stagnation, lack of rain).
-*   **Predicted PM2.5 Trend:** Forecast the likely average PM2.5 levels for the same period.
-
-**2. Weather Forecast:**
-*   **Predicted Temperature Trend:** Forecast the expected average temperature (°F) for each of the next three months.
-*   **Predicted Precipitation Trend:** Forecast the expected total precipitation (in inches) for each month.
-
-**3. Overall Analysis:**
-*   **Impact of Custom Factors:** If custom factors were provided, explicitly state how they influenced your prediction. If not, omit this section.
-*   **Confidence Level:** State your confidence in this prediction (e.g., High, Medium, Low) and mention potential variables that could alter the outcome.
-`;
-
-    try {
-        const response = await aiInstance.models.generateContent({
-            model: "gemini-2.5-pro",
-            contents: prompt,
-            config: {
-                thinkingConfig: { thinkingBudget: 32768 }
-            },
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Error in getPredictiveAnalysisResponse:", error);
-        return "Failed to get a predictive analysis response.";
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get predictive analysis');
     }
+
+    const data = await response.json();
+    return data.text;
+  } catch (error) {
+    console.error('Error in getPredictiveAnalysisResponse:', error);
+    return handleApiError(error, 'Failed to get a predictive analysis response.');
+  }
 };
 
+/**
+ * Get weather forecast response
+ */
 export const getWeatherForecastResponse = async (
-    locationName: string,
-    historicalWeather: { month: string; avgTemp: number; precipitation: number }[],
-    customFactors: string,
-    startDate: string,
-    endDate: string
+  locationName: string,
+  historicalWeather: { month: string; avgTemp: number; precipitation: number }[],
+  customFactors: string,
+  startDate: string,
+  endDate: string
 ): Promise<string> => {
-    const aiInstance = getAi();
+  try {
+    const response = await fetch(`${API_URL}/api/gemini/weather`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        location: locationName,
+        weatherData: historicalWeather,
+        customFactors,
+        startDate,
+        endDate
+      }),
+    });
 
-    const customFactorsSection = customFactors.trim()
-    ? `
-**User-Provided Influencing Factors:**
-Please take the following user-provided context into account:
-\`\`\`
-${customFactors}
-\`\`\`
-`
-    : '';
-
-    const prompt = `
-You are an expert meteorologist specializing in California's San Joaquin Valley. Your task is to provide a predictive analysis of weather trends for the next three months.
-
-**Location:** ${locationName}
-
-**Provided Historical Data:**
-**Date Range of Data:** ${startDate} to ${endDate}
-\`\`\`json
-${JSON.stringify(historicalWeather, null, 2)}
-\`\`\`
-${customFactorsSection}
-**Instructions:**
-Based on the provided historical data, general seasonal patterns for the region, and any user-provided factors, generate a detailed weather forecast for the next 3 months.
-
-Present the forecast in a clear, well-structured Markdown format:
-
-**1. Weather Forecast:**
-*   **Predicted Temperature Trend:** Forecast the expected average temperature (°F) for each of the next three months, explaining your reasoning (e.g., seasonal shifts, heat dome potential, ocean temperature influences).
-*   **Predicted Precipitation Trend:** Forecast the expected total precipitation (in inches) for each month, explaining your reasoning (e.g., storm track possibilities, atmospheric river potential).
-
-**2. Overall Analysis:**
-*   **Impact of Custom Factors:** If custom factors were provided, explicitly state how they influenced your prediction. If not, omit this section.
-*   **Confidence Level:** State your confidence in this prediction (e.g., High, Medium, Low) and mention potential variables that could alter the outcome (e.g., unexpected shifts in jet stream, El Niño/La Niña status).
-
-**IMPORTANT:** Do NOT include any analysis or forecast related to air quality (AQI, PM2.5). Focus exclusively on meteorological conditions.
-`;
-
-    try {
-        const response = await aiInstance.models.generateContent({
-            model: "gemini-2.5-pro",
-            contents: prompt,
-            config: {
-                thinkingConfig: { thinkingBudget: 32768 }
-            },
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Error in getWeatherForecastResponse:", error);
-        return "Failed to get a weather forecast response.";
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get weather forecast');
     }
+
+    const data = await response.json();
+    return data.text;
+  } catch (error) {
+    console.error('Error in getWeatherForecastResponse:', error);
+    return handleApiError(error, 'Failed to get a weather forecast response.');
+  }
 };

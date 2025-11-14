@@ -19,6 +19,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1TSTROmMZDi_NK0VF4oiiW_
 ## Tech Stack
 
 - **Frontend**: React 19 + TypeScript + Vite
+- **Backend**: Express.js + Node.js
 - **Styling**: Tailwind CSS
 - **Charts**: Recharts
 - **Maps**: Google Maps API with marker clustering
@@ -28,41 +29,89 @@ View your app in AI Studio: https://ai.studio/apps/drive/1TSTROmMZDi_NK0VF4oiiW_
 
 **Prerequisites:**  Node.js 18+
 
-1. Install dependencies:
+### Quick Start (Development)
+
+1. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key:
+2. **Set up environment variables:**
+
+   Create a `.env` file in the root directory:
    ```bash
+   # Backend Configuration
    GEMINI_API_KEY=your_api_key_here
+   PORT=3001
+   NODE_ENV=development
    ```
 
-3. Run the app:
+   Create a `.env.local` file (optional, for custom backend URL):
    ```bash
+   VITE_API_URL=http://localhost:3001
+   ```
+
+3. **Run both frontend and backend:**
+   ```bash
+   npm run dev:all
+   ```
+
+   Or run them separately in different terminals:
+   ```bash
+   # Terminal 1 - Backend server
+   npm run dev:server
+
+   # Terminal 2 - Frontend dev server
    npm run dev
    ```
 
-4. Open http://localhost:5173 in your browser
+4. **Open the app:**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:3001
 
-## ⚠️ Security Notice
+### Production Deployment
 
-**IMPORTANT**: This application currently has the API key embedded in the client-side code, which is **not secure for production use**.
+1. **Build the frontend:**
+   ```bash
+   npm run build
+   ```
 
-Please read [SECURITY.md](SECURITY.md) for:
-- Detailed security issues and their severity
-- Step-by-step guide to implement a backend proxy
-- Best practices for securing API keys
-- Additional security recommendations
+2. **Start the backend server:**
+   ```bash
+   npm start
+   ```
 
-**For production deployment, you MUST implement a backend proxy server to keep API keys secure.**
+3. **Serve the frontend** using a static file server (nginx, Vercel, Netlify, etc.)
 
-## Recent Improvements (Week 1 Security Fixes)
+## ✅ Security Features
 
-✅ Fixed XSS vulnerability in analysis results
-✅ Added comprehensive input validation
-✅ Implemented React Error Boundary for better error handling
-✅ Documented security issues and remediation steps
+**SECURE**: This application now uses a backend proxy server to keep the API key secure!
+
+✅ API keys stored server-side only
+✅ Client-side code has NO access to sensitive credentials
+✅ Rate limiting implemented (50 requests/minute per IP)
+✅ Input validation on all endpoints
+✅ CORS protection enabled
+
+## Recent Improvements
+
+### Week 3: Backend Security Implementation ✅
+- Implemented Express backend proxy server
+- Removed API key from client-side code
+- Added rate limiting and input validation
+- Secured all Gemini API endpoints
+
+### Week 2-3: Code Quality & Accessibility ✅
+- Created shared constants for AQI, locations, and validation
+- Improved TypeScript type safety (reduced `any` types)
+- Added comprehensive ARIA labels for accessibility
+- Pinned all dependency versions
+
+### Week 1: Critical Security Fixes ✅
+- Fixed XSS vulnerability in analysis results
+- Added comprehensive input validation
+- Implemented React Error Boundary
+- Created detailed security documentation
 
 ## Project Structure
 
@@ -75,29 +124,38 @@ GeoIntelliSense/
 │   ├── MapView.tsx      # Interactive map view
 │   ├── ErrorBoundary.tsx # Error handling component
 │   └── icons/           # Icon components
-├── services/            # API services
-│   └── geminiService.ts # Gemini API integration
+├── server/              # Backend Express server
+│   ├── index.js         # Main server file with API endpoints
+│   └── .env.example     # Backend environment template
+├── services/            # Frontend API services
+│   └── geminiService.ts # Backend proxy client
+├── constants/           # Shared constants
+│   ├── aqi.ts           # AQI thresholds and helpers
+│   ├── locations.ts     # Geographic constants
+│   └── validation.ts    # Input validation rules
 ├── data/                # Mock data
 │   └── dashboardData.ts # Historical AQI and weather data
-└── types.ts             # TypeScript type definitions
+├── types.ts             # TypeScript type definitions
+├── .env.example         # Frontend environment template
+└── SECURITY.md          # Security documentation
 ```
 
 ## Known Limitations
 
 - Uses mock data for historical AQI and weather information
-- API key currently client-side (see Security Notice above)
-- No backend server (planned for future releases)
 - Limited to San Joaquin Valley region
+- Google Maps API key still required for map functionality (separate from Gemini)
 
 ## Future Enhancements
 
-- [ ] Implement backend API proxy for security
-- [ ] Add user authentication
-- [ ] Connect to real-time AQI data sources
-- [ ] Expand to other regions
-- [ ] Add export functionality for reports
-- [ ] Implement comprehensive test suite
-- [ ] Add error logging/monitoring (Sentry)
+- [ ] Add user authentication and authorization
+- [ ] Connect to real-time AQI data sources (e.g., PurpleAir, AirNow API)
+- [ ] Expand to other geographic regions
+- [ ] Add export functionality for reports (PDF, CSV)
+- [ ] Implement comprehensive test suite (Vitest + Testing Library)
+- [ ] Add error logging/monitoring (Sentry/LogRocket)
+- [ ] Implement caching layer (Redis) for API responses
+- [ ] Add WebSocket support for real-time updates
 
 ## Contributing
 
