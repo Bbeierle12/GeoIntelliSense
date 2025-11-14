@@ -7,11 +7,13 @@ import { WarningIcon } from './icons/WarningIcon';
 import { EyeIcon } from './icons/EyeIcon';
 import { WindIcon } from './icons/WindIcon';
 import { CloudIcon } from './icons/CloudIcon';
+import { CalendarIcon } from './icons/CalendarIcon';
 import { dashboardData, locations, LocationKey } from '../data/dashboardData';
+import CalendarView from './CalendarView';
 
 const comparisonColors = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#eab308'];
 
-type DashboardTab = 'overview' | 'aqi' | 'weather';
+type DashboardTab = 'overview' | 'aqi' | 'weather' | 'calendar';
 
 const parseMonthString = (monthStr: string): Date => {
     const [month, year] = monthStr.replace("'", "").split(' ');
@@ -339,6 +341,7 @@ const Dashboard: React.FC = () => {
     { id: 'overview', label: 'Overview', icon: EyeIcon },
     { id: 'aqi', label: 'Air Quality Trends', icon: WindIcon },
     { id: 'weather', label: 'Weather Trends', icon: CloudIcon },
+    { id: 'calendar', label: 'Weather Calendar', icon: CalendarIcon },
   ];
 
   const renderContent = () => {
@@ -450,6 +453,8 @@ const Dashboard: React.FC = () => {
                     </div>
                 </div>
             );
+        case 'calendar':
+            return <CalendarView selectedLocations={selectedLocations} />;
         default:
             return null;
     }
