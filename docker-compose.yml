@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Backend API Server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: geointellisense-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PORT=3001
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - geointellisense-network
+
+  # Frontend (Nginx serving static build)
+  frontend:
+    image: nginx:alpine
+    container_name: geointellisense-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - geointellisense-network
+
+networks:
+  geointellisense-network:
+    driver: bridge
+
+# Usage:
+# 1. Build frontend: npm run build
+# 2. Create .env file with GEMINI_API_KEY
+# 3. Run: docker-compose up -d
+# 4. Access: http://localhost:8080
+# 5. Stop: docker-compose down
