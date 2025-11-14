@@ -26,6 +26,7 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [weatherGranularity, setWeatherGranularity] = useState<'daily' | 'monthly'>('monthly');
   
   useEffect(() => {
     // Set default date range to the full 12 months of available data.
@@ -185,6 +186,185 @@ const Dashboard: React.FC = () => {
     });
     return filteredMonthOrder.map(month => monthMap.get(month)).filter(Boolean);
   }, [selectedLocations, getFilteredHistoricalData]);
+
+  // Memoized humidity trends data
+  const mergedHumidityData = useMemo(() => {
+    if (weatherGranularity === 'monthly') {
+      // For monthly view, aggregate from dailyForecast
+      if (!startDate || !endDate) return [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setMonth(end.getMonth() + 1, 0);
+
+      const monthMap = new Map<string, Record<string, { sum: number; count: number }>>();
+      
+      selectedLocations.forEach(loc => {
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'dailyForecast' in locEntry) {
+          locEntry.dailyForecast.forEach((day: any) => {
+            const dayDate = new Date(day.date);
+            if (dayDate >= start && dayDate <= end) {
+              const monthKey = `${dayDate.toLocaleDateString('en-US', { month: 'short' })} '${dayDate.getFullYear().toString().slice(-2)}`;
+              if (!monthMap.has(monthKey)) {
+                monthMap.set(monthKey, {});
+              }
+              const monthData = monthMap.get(monthKey)!;
+              if (!monthData[loc]) {
+                monthData[loc] = { sum: 0, count: 0 };
+              }
+              monthData[loc].sum += day.humidity;
+              monthData[loc].count += 1;
+            }
+          });
+        }
+      });
+
+      const result: any[] = [];
+      monthMap.forEach((locData, month) => {
+        const entry: any = { month };
+        Object.keys(locData).forEach(loc => {
+          entry[loc] = Math.round(locData[loc].sum / locData[loc].count);
+        });
+        result.push(entry);
+      });
+      return result;
+    }
+    return [];
+  }, [selectedLocations, startDate, endDate, weatherGranularity]);
+
+  // Memoized wind speed trends data
+  const mergedWindData = useMemo(() => {
+    if (weatherGranularity === 'monthly') {
+      if (!startDate || !endDate) return [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setMonth(end.getMonth() + 1, 0);
+
+      const monthMap = new Map<string, Record<string, { sum: number; count: number }>>();
+      
+      selectedLocations.forEach(loc => {
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'dailyForecast' in locEntry) {
+          locEntry.dailyForecast.forEach((day: any) => {
+            const dayDate = new Date(day.date);
+            if (dayDate >= start && dayDate <= end) {
+              const monthKey = `${dayDate.toLocaleDateString('en-US', { month: 'short' })} '${dayDate.getFullYear().toString().slice(-2)}`;
+              if (!monthMap.has(monthKey)) {
+                monthMap.set(monthKey, {});
+              }
+              const monthData = monthMap.get(monthKey)!;
+              if (!monthData[loc]) {
+                monthData[loc] = { sum: 0, count: 0 };
+              }
+              monthData[loc].sum += day.wind.speed;
+              monthData[loc].count += 1;
+            }
+          });
+        }
+      });
+
+      const result: any[] = [];
+      monthMap.forEach((locData, month) => {
+        const entry: any = { month };
+        Object.keys(locData).forEach(loc => {
+          entry[loc] = Math.round((locData[loc].sum / locData[loc].count) * 10) / 10;
+        });
+        result.push(entry);
+      });
+      return result;
+    }
+    return [];
+  }, [selectedLocations, startDate, endDate, weatherGranularity]);
+
+  // Memoized UV index trends data
+  const mergedUVData = useMemo(() => {
+    if (weatherGranularity === 'monthly') {
+      if (!startDate || !endDate) return [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setMonth(end.getMonth() + 1, 0);
+
+      const monthMap = new Map<string, Record<string, { max: number; count: number }>>();
+      
+      selectedLocations.forEach(loc => {
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'dailyForecast' in locEntry) {
+          locEntry.dailyForecast.forEach((day: any) => {
+            const dayDate = new Date(day.date);
+            if (dayDate >= start && dayDate <= end) {
+              const monthKey = `${dayDate.toLocaleDateString('en-US', { month: 'short' })} '${dayDate.getFullYear().toString().slice(-2)}`;
+              if (!monthMap.has(monthKey)) {
+                monthMap.set(monthKey, {});
+              }
+              const monthData = monthMap.get(monthKey)!;
+              if (!monthData[loc]) {
+                monthData[loc] = { max: 0, count: 0 };
+              }
+              monthData[loc].max = Math.max(monthData[loc].max, day.uv);
+              monthData[loc].count += 1;
+            }
+          });
+        }
+      });
+
+      const result: any[] = [];
+      monthMap.forEach((locData, month) => {
+        const entry: any = { month };
+        Object.keys(locData).forEach(loc => {
+          entry[loc] = locData[loc].max;
+        });
+        result.push(entry);
+      });
+      return result;
+    }
+    return [];
+  }, [selectedLocations, startDate, endDate, weatherGranularity]);
+
+  // Memoized agricultural metrics data (ET0 and Solar Radiation)
+  const mergedAgriculturalData = useMemo(() => {
+    if (weatherGranularity === 'monthly') {
+      if (!startDate || !endDate) return [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setMonth(end.getMonth() + 1, 0);
+
+      const monthMap = new Map<string, Record<string, { et0Sum: number; solarSum: number; count: number }>>();
+      
+      selectedLocations.forEach(loc => {
+        const locEntry = dashboardData[loc];
+        if (locEntry && 'dailyForecast' in locEntry) {
+          locEntry.dailyForecast.forEach((day: any) => {
+            const dayDate = new Date(day.date);
+            if (dayDate >= start && dayDate <= end) {
+              const monthKey = `${dayDate.toLocaleDateString('en-US', { month: 'short' })} '${dayDate.getFullYear().toString().slice(-2)}`;
+              if (!monthMap.has(monthKey)) {
+                monthMap.set(monthKey, {});
+              }
+              const monthData = monthMap.get(monthKey)!;
+              if (!monthData[loc]) {
+                monthData[loc] = { et0Sum: 0, solarSum: 0, count: 0 };
+              }
+              monthData[loc].et0Sum += day.evapotranspiration;
+              monthData[loc].solarSum += day.solarRadiation;
+              monthData[loc].count += 1;
+            }
+          });
+        }
+      });
+
+      const result: any[] = [];
+      monthMap.forEach((locData, month) => {
+        const entry: any = { month };
+        Object.keys(locData).forEach(loc => {
+          entry[`${loc}_et0`] = Math.round((locData[loc].et0Sum / locData[loc].count) * 10) / 10;
+          entry[`${loc}_solar`] = Math.round(locData[loc].solarSum / locData[loc].count);
+        });
+        result.push(entry);
+      });
+      return result;
+    }
+    return [];
+  }, [selectedLocations, startDate, endDate, weatherGranularity]);
 
   const renderCurrentConditions = () => {
     if (!isComparisonMode) {
@@ -432,6 +612,34 @@ const Dashboard: React.FC = () => {
                         <p className="text-slate-400">Analyzing long-term patterns in weather for the selected date range.</p>
                     </div>
                      {renderDateFilter()}
+                    
+                    {/* Granularity selector */}
+                    <div className="flex gap-2 items-center">
+                        <span className="text-sm font-medium text-slate-300">View:</span>
+                        <button
+                            onClick={() => setWeatherGranularity('monthly')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                                weatherGranularity === 'monthly'
+                                    ? 'bg-brand-primary text-white'
+                                    : 'bg-brand-bg-lighter text-slate-300 hover:bg-brand-secondary'
+                            }`}
+                        >
+                            Monthly
+                        </button>
+                        <button
+                            onClick={() => setWeatherGranularity('daily')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                                weatherGranularity === 'daily'
+                                    ? 'bg-brand-primary text-white'
+                                    : 'bg-brand-bg-lighter text-slate-300 hover:bg-brand-secondary'
+                            }`}
+                            disabled
+                        >
+                            Daily (Coming Soon)
+                        </button>
+                    </div>
+
+                    {/* Temperature & Precipitation */}
                     <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
                         <h3 className="text-xl font-semibold text-slate-200 mb-4">Historical Temperature & Precipitation</h3>
                         <ResponsiveContainer width="100%" height={300}>
@@ -447,6 +655,90 @@ const Dashboard: React.FC = () => {
                                 ))}
                                 {selectedLocations.map((loc, i) => (
                                     <Line key={`${loc}_temp`} yAxisId="left" type="monotone" dataKey={`${loc}_temp`} stroke={comparisonColors[i % comparisonColors.length]} strokeWidth={2} name={`Temp in ${loc}`} />
+                                ))}
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Humidity & Wind Speed Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Humidity Trends */}
+                        <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-semibold text-slate-200 mb-4">Humidity Trends</h3>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={mergedHumidityData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                    <XAxis dataKey="month" stroke="#94a3b8" />
+                                    <YAxis stroke="#94a3b8" domain={[0, 100]} label={{ value: 'Humidity (%)', angle: -90, position: 'insideLeft', fill: '#cbd5e1' }} />
+                                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }}/>
+                                    <Legend />
+                                    {selectedLocations.map((loc, i) => (
+                                        <Line key={loc} type="monotone" dataKey={loc} stroke={comparisonColors[i % comparisonColors.length]} name={loc} strokeWidth={2}/>
+                                    ))}
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        {/* Wind Speed Patterns */}
+                        <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-semibold text-slate-200 mb-4">Wind Speed Patterns</h3>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={mergedWindData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                    <XAxis dataKey="month" stroke="#94a3b8" />
+                                    <YAxis stroke="#94a3b8" domain={[0, 'dataMax + 5']} label={{ value: 'Wind Speed (mph)', angle: -90, position: 'insideLeft', fill: '#cbd5e1' }} />
+                                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }}/>
+                                    <Legend />
+                                    {selectedLocations.map((loc, i) => (
+                                        <Line key={loc} type="monotone" dataKey={loc} stroke={comparisonColors[i % comparisonColors.length]} name={loc} strokeWidth={2}/>
+                                    ))}
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* UV Index */}
+                    <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-semibold text-slate-200 mb-4">UV Index Trends</h3>
+                        <p className="text-sm text-slate-400 mb-4">Monthly maximum UV index values (0-2: Low, 3-5: Moderate, 6-7: High, 8-10: Very High, 11+: Extreme)</p>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={mergedUVData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                <XAxis dataKey="month" stroke="#94a3b8" />
+                                <YAxis stroke="#94a3b8" domain={[0, 11]} label={{ value: 'UV Index', angle: -90, position: 'insideLeft', fill: '#cbd5e1' }} />
+                                <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }}/>
+                                <Legend />
+                                <ReferenceLine y={6} label={{ value: "High", position: "insideTopRight", fill: '#f97316' }} stroke="#f97316" strokeDasharray="4 4" />
+                                <ReferenceLine y={8} label={{ value: "Very High", position: "insideTopRight", fill: '#ef4444' }} stroke="#ef4444" strokeDasharray="4 4" />
+                                {selectedLocations.map((loc, i) => (
+                                    <Bar key={loc} dataKey={loc} fill={comparisonColors[i % comparisonColors.length]} name={loc} />
+                                ))}
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Agricultural Metrics */}
+                    <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg border-2 border-green-900/50">
+                        <div className="flex items-center gap-2 mb-4">
+                            <h3 className="text-xl font-semibold text-slate-200">Agricultural Metrics</h3>
+                            <span className="text-xs bg-green-900/50 text-green-300 px-2 py-1 rounded-full">For Valley Farming</span>
+                        </div>
+                        <p className="text-sm text-slate-400 mb-4">
+                            Evapotranspiration (ET0) and Solar Radiation are critical for irrigation scheduling and crop water management.
+                        </p>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <ComposedChart data={mergedAgriculturalData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                                <XAxis dataKey="month" stroke="#94a3b8" />
+                                <YAxis yAxisId="left" stroke="#10b981" label={{ value: 'ET0 (mm/day)', angle: -90, position: 'insideLeft', fill: '#cbd5e1' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#fbbf24" label={{ value: 'Solar Rad (W/m²)', angle: -90, position: 'insideRight', fill: '#cbd5e1' }} />
+                                <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} labelStyle={{ color: '#cbd5e1' }}/>
+                                <Legend />
+                                {selectedLocations.map((loc, i) => (
+                                    <Bar key={`${loc}_solar`} yAxisId="right" dataKey={`${loc}_solar`} fill={comparisonColors[i % comparisonColors.length]} name={`Solar Rad in ${loc}`} opacity={0.5} />
+                                ))}
+                                {selectedLocations.map((loc, i) => (
+                                    <Line key={`${loc}_et0`} yAxisId="left" type="monotone" dataKey={`${loc}_et0`} stroke={comparisonColors[i % comparisonColors.length]} strokeWidth={2} name={`ET0 in ${loc}`} />
                                 ))}
                             </ComposedChart>
                         </ResponsiveContainer>
