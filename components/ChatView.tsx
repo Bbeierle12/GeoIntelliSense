@@ -3,10 +3,13 @@ import { getChatResponse } from '../services/geminiService';
 import type { ChatMessage } from '../types';
 
 const ChatView: React.FC = () => {
+  const hasApiKey = !!(process.env.GEMINI_API_KEY || process.env.API_KEY);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'model',
-      text: "Hello! I am your geospatial analyst for the San Joaquin Valley. How can I help you today? You can ask me about air quality, weather patterns, or their connections."
+      text: hasApiKey 
+        ? "Hello! I am your geospatial analyst for the San Joaquin Valley. How can I help you today? You can ask me about air quality, weather patterns, or their connections."
+        : "⚠️ Gemini API key not configured. Please add GEMINI_API_KEY to your .env.local file to enable chat features."
     }
   ]);
   const [input, setInput] = useState('');
@@ -20,7 +23,7 @@ const ChatView: React.FC = () => {
   useEffect(scrollToBottom, [messages]);
 
   const handleSend = async () => {
-    if (input.trim() === '' || isLoading) return;
+    if (input.trim() === '' || isLoading || !hasApiKey) return;
 
     const userMessage: ChatMessage = { role: 'user', text: input };
     setMessages(prev => [...prev, userMessage]);
@@ -78,8 +81,9 @@ const ChatView: React.FC = () => {
           />
           <button
             onClick={handleSend}
-            disabled={isLoading}
-            className="px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 disabled:bg-slate-500 transition-colors"
+            disabled={isLoading || !hasApiKey}
+            className="px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 disabled:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title={!hasApiKey ? "Configure GEMINI_API_KEY in .env.local to enable chat" : ""}
           >
             {isLoading ? 'Sending...' : 'Send'}
           </button>

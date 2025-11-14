@@ -322,9 +322,12 @@ const MapView: React.FC = () => {
         
         document.getElementById('google-maps-script')?.remove();
 
+        // Try to get API key from environment first, fallback to AI Studio key
+        const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.API_KEY;
+        
         const script = document.createElement('script');
         script.id = 'google-maps-script';
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.API_KEY}&libraries=places`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         script.onload = () => {
             isScriptLoaded.current = true;
             setIsApiReady(true);
@@ -332,7 +335,7 @@ const MapView: React.FC = () => {
             setError(null);
         };
         script.onerror = () => {
-            setError('Google Maps failed to load. The selected API key is invalid, not enabled for the "Maps JavaScript API", or has restrictions. Please select a different key or check its configuration in the Google Cloud Console.');
+            setError('Google Maps failed to load. The API key is invalid, not enabled for the "Maps JavaScript API", or has restrictions. Please check your .env.local file or select a different key in the Google Cloud Console.');
             setIsLoading(false);
             setApiKeySelected(false);
         };
@@ -343,9 +346,18 @@ const MapView: React.FC = () => {
         setIsLoading(true);
         setError(null);
 
+        // Check if we have an environment variable key first
+        if (process.env.GOOGLE_MAPS_API_KEY) {
+            setApiKeySelected(true);
+            loadScript();
+            return;
+        }
+
+        // Fallback to AI Studio key selection if available
         if (!window.aistudio) {
-            setError("AI Studio environment not detected. Cannot select API key for Maps.");
+            setError("No Google Maps API key found. Please add GOOGLE_MAPS_API_KEY to your .env.local file.");
             setIsLoading(false);
+            setApiKeySelected(false);
             return;
         }
 
@@ -564,17 +576,20 @@ const MapView: React.FC = () => {
                         <KeyIcon className="w-12 h-12 text-brand-primary mx-auto mb-4" />
                         <h3 className="text-xl font-bold text-slate-100 mb-2">Google Maps API Key Required</h3>
                         <p className="text-slate-400 mb-6">
-                            To view the interactive map, you need to select a Google Cloud API key with the "Maps JavaScript API" enabled. This app may incur charges against your selected billing project.
-                            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline ml-1">Learn about billing.</a>
+                            To view the interactive map, you need a Google Cloud API key with the "Maps JavaScript API" enabled. 
+                            Add <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">GOOGLE_MAPS_API_KEY</code> to your <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">.env.local</code> file.
+                            {window.aistudio && <span> Alternatively, you can select an API key from AI Studio below.</span>}
                         </p>
                         {error && <p className="bg-red-900/50 border border-red-700 text-red-200 p-3 rounded-md mb-4 text-sm">{error}</p>}
-                        <button
-                            onClick={handleSelectKey}
-                            className="w-full py-2 px-4 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
-                        >
-                            <KeyIcon className="w-5 h-5"/>
-                            Select API Key
-                        </button>
+                        {window.aistudio && (
+                            <button
+                                onClick={handleSelectKey}
+                                className="w-full py-2 px-4 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <KeyIcon className="w-5 h-5"/>
+                                Select API Key (AI Studio)
+                            </button>
+                        )}
                     </div>
                 </div>
             );

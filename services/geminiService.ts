@@ -7,7 +7,11 @@ let chat: Chat;
 
 function getAi() {
     if (!ai) {
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+        if (!apiKey) {
+            throw new Error('Gemini API key not found. Please add GEMINI_API_KEY to your .env.local file.');
+        }
+        ai = new GoogleGenAI({ apiKey });
     }
     return ai;
 }

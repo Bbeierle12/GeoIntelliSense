@@ -14,7 +14,29 @@ View your app in AI Studio: https://ai.studio/apps/drive/1TSTROmMZDi_NK0VF4oiiW_
 
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+   ```bash
+   npm install
+   ```
+
+2. Configure API keys in [.env.local](.env.local):
+   
+   **Both API keys are required for full functionality:**
+   
+   - **`GEMINI_API_KEY`** - Required for Chat and Analysis features
+     - Get it from [Google AI Studio](https://aistudio.google.com/apikey)
+     - Free tier available with generous limits
+   
+   - **`GOOGLE_MAPS_API_KEY`** - Required for Interactive Map feature
+     - Get it from [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/)
+     - Ensure the "Maps JavaScript API" is enabled for your project
+     - Consider adding API restrictions for security
+     - May incur charges based on usage
+   
+   **Note:** The app will work partially with only one key configured. Features requiring a missing key will show a configuration message.
+
 3. Run the app:
-   `npm run dev`
+   ```bash
+   npm run dev
+   ```
+
+4. Open your browser to `http://localhost:5174`

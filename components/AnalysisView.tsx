@@ -76,6 +76,7 @@ const parseMonthString = (monthStr: string): Date => {
 };
 
 const AnalysisView: React.FC = () => {
+    const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.API_KEY);
     const [tool, setTool] = useState<AnalysisTool>('predictive');
     const [prompt, setPrompt] = useState('');
     const [customFactors, setCustomFactors] = useState('');
@@ -262,6 +263,17 @@ const AnalysisView: React.FC = () => {
     
     return (
         <div className="max-w-5xl mx-auto space-y-6">
+            {!hasGeminiKey && (
+                <div className="bg-yellow-900/30 border border-yellow-700/50 text-yellow-200 p-4 rounded-lg flex items-start gap-3">
+                    <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div>
+                        <p className="font-semibold">Gemini API Key Required</p>
+                        <p className="text-sm mt-1">Add <code className="bg-yellow-950 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> to your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env.local</code> file to enable analysis features.</p>
+                    </div>
+                </div>
+            )}
             <div>
                 <h2 className="text-3xl font-bold text-slate-100">Advanced Analysis Tools</h2>
                 <p className="text-slate-400">Select a tool to perform a specific type of analysis.</p>
@@ -399,8 +411,9 @@ const AnalysisView: React.FC = () => {
                  )}
                 <button
                     onClick={handleSubmit}
-                    disabled={isLoading || (!isForecastTool && !prompt)}
+                    disabled={isLoading || (!isForecastTool && !prompt) || !hasGeminiKey}
                     className="w-full py-3 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                    title={!hasGeminiKey ? "Configure GEMINI_API_KEY in .env.local to enable analysis" : ""}
                 >
                     {isLoading ? (
                         <>
