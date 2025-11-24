@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
+import {
     ResponsiveContainer,
     LineChart,
     ComposedChart,
@@ -13,14 +13,15 @@ import {
     Tooltip,
     Legend,
 } from 'recharts';
-import { 
-    getGroundedSearchResponse, 
-    getGroundedMapsResponse, 
-    getLowLatencyResponse, 
+import {
+    getGroundedSearchResponse,
+    getGroundedMapsResponse,
+    getLowLatencyResponse,
     getDeepAnalysisResponse,
     getPredictiveAnalysisResponse,
     getWeatherForecastResponse
 } from '../services/geminiService';
+import { useApiStatus } from '../hooks/useApiStatus';
 import type { AnalysisTool, GroundingChunk } from '../types';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { SearchIcon } from './icons/SearchIcon';
@@ -76,7 +77,7 @@ const parseMonthString = (monthStr: string): Date => {
 };
 
 const AnalysisView: React.FC = () => {
-    const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.API_KEY);
+    const { isAvailable: hasGeminiKey, isLoading: isApiLoading, error: apiError } = useApiStatus();
     const [tool, setTool] = useState<AnalysisTool>('predictive');
     const [prompt, setPrompt] = useState('');
     const [customFactors, setCustomFactors] = useState('');
@@ -269,8 +270,8 @@ const AnalysisView: React.FC = () => {
                         <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                     <div>
-                        <p className="font-semibold">Gemini API Key Required</p>
-                        <p className="text-sm mt-1">Add <code className="bg-yellow-950 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> to your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env.local</code> file to enable analysis features.</p>
+                        <p className="font-semibold">Backend Server Required</p>
+                        <p className="text-sm mt-1">Start the backend server with <code className="bg-yellow-950 px-1.5 py-0.5 rounded">npm run server</code> and ensure <code className="bg-yellow-950 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> is configured in your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env.local</code> file.</p>
                     </div>
                 </div>
             )}
@@ -413,7 +414,7 @@ const AnalysisView: React.FC = () => {
                     onClick={handleSubmit}
                     disabled={isLoading || (!isForecastTool && !prompt) || !hasGeminiKey}
                     className="w-full py-3 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                    title={!hasGeminiKey ? "Configure GEMINI_API_KEY in .env.local to enable analysis" : ""}
+                    title={!hasGeminiKey ? "Start the backend server to enable analysis" : ""}
                 >
                     {isLoading ? (
                         <>

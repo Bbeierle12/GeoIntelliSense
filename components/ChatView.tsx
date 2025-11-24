@@ -1,17 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getChatResponse } from '../services/geminiService';
+import { useApiStatus } from '../hooks/useApiStatus';
 import type { ChatMessage } from '../types';
 
 const ChatView: React.FC = () => {
-  const hasApiKey = !!(process.env.GEMINI_API_KEY || process.env.API_KEY);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'model',
-      text: hasApiKey 
-        ? "Hello! I am your geospatial analyst for the San Joaquin Valley. How can I help you today? You can ask me about air quality, weather patterns, or their connections."
-        : "⚠️ Gemini API key not configured. Please add GEMINI_API_KEY to your .env.local file to enable chat features."
-    }
-  ]);
+  const { isAvailable: hasApiKey, isLoading: isApiLoading, error: apiError } = useApiStatus();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -21,6 +15,19 @@ const ChatView: React.FC = () => {
   };
 
   useEffect(scrollToBottom, [messages]);
+
+  // Set initial message based on API availability
+  useEffect(() => {
+    if (!isApiLoading && messages.length === 0) {
+      const initialMessage: ChatMessage = {
+        role: 'model',
+        text: hasApiKey
+          ? "Hello! I am your geospatial analyst for the San Joaquin Valley. How can I help you today? You can ask me about air quality, weather patterns, or their connections."
+          : apiError || "⚠️ Backend server is not running. Please start it with 'npm run server' and ensure GEMINI_API_KEY is configured in your .env.local file."
+      };
+      setMessages([initialMessage]);
+    }
+  }, [isApiLoading, hasApiKey, apiError, messages.length]);
 
   const handleSend = async () => {
     if (input.trim() === '' || isLoading || !hasApiKey) return;
@@ -83,7 +90,7 @@ const ChatView: React.FC = () => {
             onClick={handleSend}
             disabled={isLoading || !hasApiKey}
             className="px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-sky-600 disabled:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title={!hasApiKey ? "Configure GEMINI_API_KEY in .env.local to enable chat" : ""}
+            title={!hasApiKey ? "Start the backend server to enable chat" : ""}
           >
             {isLoading ? 'Sending...' : 'Send'}
           </button>

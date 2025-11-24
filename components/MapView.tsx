@@ -6,7 +6,7 @@ import { KeyIcon } from './icons/KeyIcon';
 import { SearchIcon } from './icons/SearchIcon';
 
 // Define AIStudio interface within the global scope to resolve type conflicts.
-// Extend the Window interface to include google.maps and aistudio.
+// Extend the Window interface to include aistudio.
 declare global {
     interface AIStudio {
         hasSelectedApiKey: () => Promise<boolean>;
@@ -14,7 +14,6 @@ declare global {
     }
 
     interface Window {
-        google: any;
         aistudio?: AIStudio;
     }
 }
@@ -299,10 +298,10 @@ const mapStyles = [
 
 const MapView: React.FC = () => {
     const mapRef = useRef<HTMLDivElement>(null);
-    const mapInstanceRef = useRef<any>(null);
-    const markerClustererRef = useRef<any>(null);
-    const infoWindowsRef = useRef<Map<string, any>>(new Map());
-    const activeInfoWindowRef = useRef<any>(null);
+    const mapInstanceRef = useRef<google.maps.Map | null>(null);
+    const markerClustererRef = useRef<MarkerClusterer | null>(null);
+    const infoWindowsRef = useRef<Map<string, google.maps.InfoWindow>>(new Map());
+    const activeInfoWindowRef = useRef<google.maps.InfoWindow | null>(null);
     
     const isScriptLoaded = useRef(false);
     const [isApiReady, setIsApiReady] = useState(false);
@@ -313,66 +312,51 @@ const MapView: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchError, setSearchError] = useState<string | null>(null);
 
-    const loadScript = useCallback(() => {
+    const loadScript = useCallback(async () => {
         if (isScriptLoaded.current || window.google?.maps) {
             setIsApiReady(true);
             setIsLoading(false);
             return;
         }
-        
+
         document.getElementById('google-maps-script')?.remove();
 
-        // Try to get API key from environment first, fallback to AI Studio key
-        const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.API_KEY;
-        
-        const script = document.createElement('script');
-        script.id = 'google-maps-script';
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-        script.onload = () => {
-            isScriptLoaded.current = true;
-            setIsApiReady(true);
-            setIsLoading(false);
-            setError(null);
-        };
-        script.onerror = () => {
-            setError('Google Maps failed to load. The API key is invalid, not enabled for the "Maps JavaScript API", or has restrictions. Please check your .env.local file or select a different key in the Google Cloud Console.');
+        try {
+            // Fetch API key from backend
+            const response = await fetch('http://localhost:3001/api/maps-config');
+            if (!response.ok) {
+                throw new Error('Failed to fetch Google Maps API key from backend');
+            }
+            const { apiKey } = await response.json();
+
+            const script = document.createElement('script');
+            script.id = 'google-maps-script';
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+            script.onload = () => {
+                isScriptLoaded.current = true;
+                setIsApiReady(true);
+                setIsLoading(false);
+                setError(null);
+            };
+            script.onerror = () => {
+                setError('Google Maps failed to load. The API key is invalid, not enabled for the "Maps JavaScript API", or has restrictions. Please check your .env.local file.');
+                setIsLoading(false);
+                setApiKeySelected(false);
+            };
+            document.head.appendChild(script);
+        } catch (error) {
+            console.error('Error loading Google Maps:', error);
+            setError('Failed to load Google Maps configuration. Please ensure the backend server is running and GOOGLE_MAPS_API_KEY is configured.');
             setIsLoading(false);
             setApiKeySelected(false);
-        };
-        document.head.appendChild(script);
+        }
     }, []);
 
-    const checkAndLoadMap = useCallback(async (isAfterSelection: boolean = false) => {
+    const checkAndLoadMap = useCallback(async () => {
         setIsLoading(true);
         setError(null);
-
-        // Check if we have an environment variable key first
-        if (process.env.GOOGLE_MAPS_API_KEY) {
-            setApiKeySelected(true);
-            loadScript();
-            return;
-        }
-
-        // Fallback to AI Studio key selection if available
-        if (!window.aistudio) {
-            setError("No Google Maps API key found. Please add GOOGLE_MAPS_API_KEY to your .env.local file.");
-            setIsLoading(false);
-            setApiKeySelected(false);
-            return;
-        }
-
-        const hasKey = isAfterSelection || await window.aistudio.hasSelectedApiKey();
-        setApiKeySelected(hasKey);
-        
-        if (hasKey) {
-            if (isAfterSelection) {
-                // Short delay to mitigate race condition where process.env.API_KEY might not be updated instantly.
-                await new Promise(resolve => setTimeout(resolve, 250));
-            }
-            loadScript();
-        } else {
-            setIsLoading(false);
-        }
+        setApiKeySelected(true);
+        await loadScript();
     }, [loadScript]);
 
     useEffect(() => {
@@ -521,16 +505,6 @@ const MapView: React.FC = () => {
         }
     }, [isApiReady]);
 
-    const handleSelectKey = async () => {
-        if (!window.aistudio) return;
-        try {
-            await window.aistudio.openSelectKey();
-            checkAndLoadMap(true);
-        } catch (e) {
-            console.error("Error opening select key dialog", e);
-            setError("Could not open the API key selection dialog.");
-        }
-    };
     
     const handleSearch = useCallback((e: React.FormEvent) => {
         e.preventDefault();
@@ -576,20 +550,10 @@ const MapView: React.FC = () => {
                         <KeyIcon className="w-12 h-12 text-brand-primary mx-auto mb-4" />
                         <h3 className="text-xl font-bold text-slate-100 mb-2">Google Maps API Key Required</h3>
                         <p className="text-slate-400 mb-6">
-                            To view the interactive map, you need a Google Cloud API key with the "Maps JavaScript API" enabled. 
-                            Add <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">GOOGLE_MAPS_API_KEY</code> to your <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">.env.local</code> file.
-                            {window.aistudio && <span> Alternatively, you can select an API key from AI Studio below.</span>}
+                            To view the interactive map, you need a Google Cloud API key with the "Maps JavaScript API" enabled.
+                            Add <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">GOOGLE_MAPS_API_KEY</code> to your <code className="bg-brand-bg-dark px-2 py-1 rounded text-sky-400">.env.local</code> file and restart the backend server.
                         </p>
                         {error && <p className="bg-red-900/50 border border-red-700 text-red-200 p-3 rounded-md mb-4 text-sm">{error}</p>}
-                        {window.aistudio && (
-                            <button
-                                onClick={handleSelectKey}
-                                className="w-full py-2 px-4 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
-                            >
-                                <KeyIcon className="w-5 h-5"/>
-                                Select API Key (AI Studio)
-                            </button>
-                        )}
                     </div>
                 </div>
             );
