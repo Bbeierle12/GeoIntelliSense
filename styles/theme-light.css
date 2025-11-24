@@ -1,0 +1,66 @@
+/* Light mode color overrides */
+.light {
+  /* Background colors */
+  --brand-bg-dark: #f8fafc; /* slate-50 */
+  --brand-bg-light: #ffffff;
+  --brand-bg-lighter: #f1f5f9; /* slate-100 */
+
+  /* Text colors */
+  --text-primary: #0f172a; /* slate-900 */
+  --text-secondary: #475569; /* slate-600 */
+  --text-muted: #64748b; /* slate-500 */
+
+  /* Brand colors remain the same */
+  --brand-primary: #0ea5e9; /* sky-500 */
+  --brand-secondary: #0369a1; /* sky-700 */
+
+  /* Border colors */
+  --border-color: #e2e8f0; /* slate-200 */
+}
+
+/* Light mode specific overrides */
+.light .bg-brand-bg-dark {
+  background-color: var(--brand-bg-dark);
+}
+
+.light .bg-brand-bg-light {
+  background-color: var(--brand-bg-light);
+}
+
+.light .bg-brand-bg-lighter {
+  background-color: var(--brand-bg-lighter);
+}
+
+.light .text-slate-100,
+.light .text-slate-200,
+.light .text-slate-300 {
+  color: var(--text-primary);
+}
+
+.light .text-slate-400,
+.light .text-slate-500 {
+  color: var(--text-secondary);
+}
+
+.light .text-slate-600 {
+  color: var(--text-muted);
+}
+
+/* Chart colors for light mode */
+.light .recharts-cartesian-grid-horizontal line,
+.light .recharts-cartesian-grid-vertical line {
+  stroke: var(--border-color);
+}
+
+.light .recharts-text {
+  fill: var(--text-secondary);
+}
+
+/* Card shadows for light mode */
+.light .shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+}
+
+.light .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+}
