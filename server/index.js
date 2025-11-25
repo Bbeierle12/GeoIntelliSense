@@ -8,8 +8,30 @@ dotenv.config({ path: '.env.local' });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Request timeout middleware
+const REQUEST_TIMEOUT = 30000; // 30 seconds
+
+app.use((req, res, next) => {
+    req.setTimeout(REQUEST_TIMEOUT, () => {
+        res.status(408).json({
+            error: true,
+            code: 'TIMEOUT',
+            message: 'Request timeout',
+            retryable: true
+        });
+    });
+    next();
+});
+
 app.use(cors());
 app.use(express.json());
+
+// Request logging middleware
+app.use((req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path}`);
+    next();
+});
 
 let ai;
 
@@ -275,6 +297,66 @@ app.get('/api/maps-config', (req, res) => {
         return res.status(500).json({ error: 'GOOGLE_MAPS_API_KEY not configured' });
     }
     res.json({ apiKey });
+});
+
+// 404 handler for unknown API routes
+app.use('/api/*', (req, res) => {
+    res.status(404).json({
+        error: true,
+        code: 'NOT_FOUND',
+        message: `API endpoint not found: ${req.path}`,
+        retryable: false
+    });
+});
+
+// Global error handling middleware
+app.use((err, req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}] Server error:`, err);
+
+    // Determine status code
+    const status = err.status || err.statusCode || 500;
+    
+    // Check if error is retryable
+    const retryable = status >= 500 || status === 408 || status === 429;
+    
+    // Determine error code
+    let code = 'SERVER_ERROR';
+    if (status === 401 || status === 403) {
+        code = 'API_KEY_INVALID';
+    } else if (status === 404) {
+        code = 'DATA_NOT_FOUND';
+    } else if (status === 429) {
+        code = 'RATE_LIMIT_EXCEEDED';
+    } else if (status === 408) {
+        code = 'TIMEOUT';
+    } else if (status === 400) {
+        code = 'INVALID_PARAMETERS';
+    }
+    
+    // Don't expose internal error details to client in production
+    const message = status === 500 
+        ? 'Internal server error' 
+        : err.message || 'An error occurred';
+
+    res.status(status).json({
+        error: true,
+        code,
+        message,
+        retryable,
+        timestamp
+    });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+    process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 app.listen(PORT, () => {

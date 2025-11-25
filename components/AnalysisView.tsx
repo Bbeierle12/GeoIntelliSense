@@ -264,6 +264,13 @@ const AnalysisView: React.FC = () => {
     
     return (
         <div className="max-w-5xl mx-auto space-y-6">
+            {/* Loading state announcement for screen readers */}
+            <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+                {isLoading && <span>Loading analysis results...</span>}
+                {error && <span>Error: {error}</span>}
+                {result && <span>Analysis complete. Results are now available.</span>}
+            </div>
+
             {!hasGeminiKey && (
                 <div className="bg-yellow-900/30 border border-yellow-700/50 text-yellow-200 p-4 rounded-lg flex items-start gap-3">
                     <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -280,13 +287,18 @@ const AnalysisView: React.FC = () => {
                 <p className="text-slate-400">Select a tool to perform a specific type of analysis.</p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 md:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 md:gap-4" role="group" aria-label="Analysis tool selection">
                 {(Object.keys(toolConfig) as AnalysisTool[]).map(key => {
                     const t = toolConfig[key];
                     return (
-                        <button key={key} onClick={() => setTool(key)}
-                            className={`p-4 rounded-lg text-left transition-all duration-200 flex flex-col ${tool === key ? 'bg-brand-primary text-white shadow-lg' : 'bg-brand-bg-light hover:bg-brand-bg-lighter'}`}>
-                            <t.icon className="w-6 h-6 mb-2"/>
+                        <button 
+                            key={key} 
+                            onClick={() => setTool(key)}
+                            aria-pressed={tool === key}
+                            aria-label={`Select ${t.name} analysis tool`}
+                            title={t.description}
+                            className={`p-4 rounded-lg text-left transition-all duration-200 flex flex-col focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-brand-bg-dark ${tool === key ? 'bg-brand-primary text-white shadow-lg' : 'bg-brand-bg-light hover:bg-brand-bg-lighter'}`}>
+                            <t.icon className="w-6 h-6 mb-2" aria-hidden="true"/>
                             <h3 className="font-semibold text-sm md:text-base">{t.name}</h3>
                         </button>
                     )
@@ -329,6 +341,7 @@ const AnalysisView: React.FC = () => {
                                     id="start-date"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
+                                    aria-describedby="date-format-hint"
                                     className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
                                     disabled={isLoading}
                                 />
@@ -342,11 +355,13 @@ const AnalysisView: React.FC = () => {
                                     id="end-date"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
+                                    aria-describedby="date-format-hint"
                                     className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
                                     disabled={isLoading}
                                 />
                             </div>
                         </div>
+                        <span id="date-format-hint" className="sr-only">Format: Year-Month (YYYY-MM)</span>
 
                         {predictiveChartData.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-brand-secondary">
