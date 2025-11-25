@@ -1,9 +1,9 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { DashboardIcon } from './icons/DashboardIcon';
-import { ChatIcon } from './icons/ChatIcon';
+import { AirIcon } from './icons/AirIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
-import { MapIcon } from './icons/MapIcon';
+import { SettingsIcon } from './icons/SettingsIcon';
 
 const Sidebar: React.FC = () => {
   const navItems = [
@@ -16,12 +16,12 @@ const Sidebar: React.FC = () => {
       description: 'View environmental data overview and trends'
     },
     { 
-      id: 'chat', 
-      path: '/chat', 
-      label: 'Chat Analyst', 
-      icon: ChatIcon,
-      shortcut: 'Alt+C',
-      description: 'Ask questions about environmental data'
+      id: 'air-quality-map', 
+      path: '/air-quality-map', 
+      label: 'Air Quality Map', 
+      icon: AirIcon,
+      shortcut: 'Alt+M',
+      description: 'Interactive 3D air quality visualization'
     },
     { 
       id: 'analysis', 
@@ -31,24 +31,25 @@ const Sidebar: React.FC = () => {
       shortcut: 'Alt+A',
       description: 'Perform in-depth data analysis'
     },
-    { 
-      id: 'maps', 
-      path: '/maps', 
-      label: 'Interactive Map', 
-      icon: MapIcon,
-      shortcut: 'Alt+M',
-      description: 'Explore data on an interactive map'
-    },
   ] as const;
+
+  const settingsItem = {
+    id: 'settings',
+    path: '/settings',
+    label: 'Settings',
+    icon: SettingsIcon,
+    shortcut: 'Alt+S',
+    description: 'Customize your preferences and settings'
+  };
 
   return (
     <nav 
       id="navigation"
-      className="w-20 md:w-64 bg-brand-bg-light p-2 md:p-4 flex flex-col space-y-2"
+      className="w-20 md:w-64 bg-brand-bg-light p-2 md:p-4 flex flex-col"
       aria-label="Main navigation"
       role="navigation"
     >
-      <ul className="space-y-2" role="list">
+      <ul className="space-y-2 flex-1" role="list">
         {navItems.map((item) => (
           <li key={item.id}>
             <NavLink
@@ -73,6 +74,29 @@ const Sidebar: React.FC = () => {
           </li>
         ))}
       </ul>
+      
+      {/* Settings link at bottom */}
+      <div className="pt-4 border-t border-border-color">
+        <NavLink
+          to={settingsItem.path}
+          className={({ isActive }) =>
+            `flex items-center justify-center md:justify-start space-x-3 p-3 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-brand-bg-light ${
+              isActive
+                ? 'bg-brand-primary text-white shadow-lg'
+                : 'text-slate-400 hover:bg-brand-bg-lighter hover:text-slate-200'
+            }`
+          }
+          aria-label={`${settingsItem.label} (${settingsItem.shortcut})`}
+          aria-describedby={`nav-desc-${settingsItem.id}`}
+          title={`${settingsItem.label} - ${settingsItem.shortcut}`}
+        >
+          <settingsItem.icon className="w-6 h-6 flex-shrink-0" aria-hidden="true" />
+          <span className="hidden md:inline font-semibold">{settingsItem.label}</span>
+        </NavLink>
+        <span id={`nav-desc-${settingsItem.id}`} className="sr-only">
+          {settingsItem.description}
+        </span>
+      </div>
       
       {/* Keyboard shortcuts hint for screen readers */}
       <div className="sr-only" aria-live="polite">

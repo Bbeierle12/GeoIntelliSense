@@ -9,9 +9,9 @@ import Sidebar from './components/Sidebar';
 
 // Lazy load route components for code splitting
 const Dashboard = lazy(() => import('./components/Dashboard'));
-const ChatView = lazy(() => import('./components/ChatView'));
+const AirQualityMapView = lazy(() => import('./components/AirQualityMapView'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
-const MapView = lazy(() => import('./components/MapView'));
+const SettingsView = lazy(() => import('./components/SettingsView'));
 
 // Loading fallback for lazy-loaded routes
 const RouteLoadingFallback: React.FC = () => (
@@ -37,13 +37,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       description: 'Go to Dashboard'
     },
     {
-      key: 'c',
+      key: 'm',
       altKey: true,
       action: () => {
-        navigate('/chat');
-        announce('Navigated to Chat');
+        navigate('/air-quality-map');
+        announce('Navigated to Air Quality Map');
       },
-      description: 'Go to Chat'
+      description: 'Go to Air Quality Map'
     },
     {
       key: 'a',
@@ -55,19 +55,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       description: 'Go to Analysis'
     },
     {
-      key: 'm',
+      key: 's',
       altKey: true,
       action: () => {
-        navigate('/maps');
-        announce('Navigated to Maps');
+        navigate('/settings');
+        announce('Navigated to Settings');
       },
-      description: 'Go to Maps'
+      description: 'Go to Settings'
     },
     {
       key: '?',
       shiftKey: true,
       action: () => {
-        announce('Keyboard shortcuts: Alt+D for Dashboard, Alt+C for Chat, Alt+A for Analysis, Alt+M for Maps');
+        announce('Keyboard shortcuts: Alt+D for Dashboard, Alt+M for Air Quality Map, Alt+A for Analysis, Alt+S for Settings');
       },
       description: 'Show keyboard shortcuts'
     }
@@ -129,11 +129,11 @@ const App: React.FC = () => {
                 }
               />
               <Route
-                path="/chat"
+                path="/air-quality-map"
                 element={
                   <Layout>
                     <Suspense fallback={<RouteLoadingFallback />}>
-                      <ChatView />
+                      <AirQualityMapView />
                     </Suspense>
                   </Layout>
                 }
@@ -149,11 +149,11 @@ const App: React.FC = () => {
                 }
               />
               <Route
-                path="/maps"
+                path="/settings"
                 element={
                   <Layout>
                     <Suspense fallback={<RouteLoadingFallback />}>
-                      <MapView />
+                      <SettingsView />
                     </Suspense>
                   </Layout>
                 }

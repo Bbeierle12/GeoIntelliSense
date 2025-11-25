@@ -8,6 +8,90 @@ dotenv.config({ path: '.env.local' });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// =============================================================================
+// SSE CLIENT MANAGEMENT FOR REAL-TIME DATA
+// =============================================================================
+
+const sseClients = new Set();
+
+// Simulated AQI data for San Joaquin Valley cities
+const cityData = {
+    'Bakersfield': { lat: 35.3733, lng: -119.0187, baseAqi: 95, basePm25: 28 },
+    'Fresno': { lat: 36.7378, lng: -119.7871, baseAqi: 78, basePm25: 22 },
+    'Visalia': { lat: 36.3302, lng: -119.2921, baseAqi: 82, basePm25: 24 },
+    'Merced': { lat: 37.3022, lng: -120.4830, baseAqi: 65, basePm25: 18 },
+    'Modesto': { lat: 37.6391, lng: -120.9969, baseAqi: 58, basePm25: 15 },
+    'Stockton': { lat: 37.9577, lng: -121.2908, baseAqi: 52, basePm25: 12 },
+};
+
+// Generate realistic AQI variations
+function generateAQIData() {
+    const timestamp = new Date().toISOString();
+    const hour = new Date().getHours();
+    
+    // AQI tends to be worse in early morning and evening (inversion layers)
+    const timeMultiplier = hour < 8 || hour > 18 ? 1.15 : hour < 12 ? 0.95 : 1.05;
+    
+    const cities = Object.entries(cityData).map(([name, data]) => {
+        // Add some random variation
+        const variation = (Math.random() - 0.5) * 20;
+        const aqi = Math.max(0, Math.min(500, Math.round(data.baseAqi * timeMultiplier + variation)));
+        const pm25 = Math.max(0, Math.round(data.basePm25 * timeMultiplier + variation * 0.5));
+        
+        // Simulate wind data
+        const windDirection = (270 + Math.random() * 90) % 360; // Mostly westerly
+        const windSpeed = 5 + Math.random() * 15;
+        
+        // Temperature varies by time of day
+        const baseTemp = 72;
+        const tempVariation = hour < 8 ? -10 : hour < 12 ? 0 : hour < 18 ? 15 : 5;
+        const temperature = Math.round(baseTemp + tempVariation + (Math.random() - 0.5) * 8);
+        
+        const humidity = Math.round(35 + Math.random() * 30);
+        
+        return {
+            id: name,
+            name,
+            lat: data.lat,
+            lng: data.lng,
+            aqi,
+            pm25,
+            pm10: Math.round(pm25 * 1.4),
+            o3: Math.round(20 + Math.random() * 40),
+            no2: Math.round(10 + Math.random() * 25),
+            windSpeed,
+            windDirection,
+            temperature,
+            humidity,
+            timestamp,
+        };
+    });
+    
+    // Calculate regional stats
+    const aqiValues = cities.map(c => c.aqi);
+    const stats = {
+        averageAQI: Math.round(aqiValues.reduce((a, b) => a + b, 0) / aqiValues.length),
+        maxAQI: Math.max(...aqiValues),
+        minAQI: Math.min(...aqiValues),
+        timestamp,
+    };
+    
+    return { cities, stats };
+}
+
+// Broadcast to all SSE clients
+function broadcastAQIData() {
+    const data = generateAQIData();
+    const message = `data: ${JSON.stringify(data)}\n\n`;
+    
+    for (const client of sseClients) {
+        client.write(message);
+    }
+}
+
+// Start broadcasting AQI data every 5 seconds
+setInterval(broadcastAQIData, 5000);
+
 // Request timeout middleware
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 
@@ -49,6 +133,81 @@ function getAi() {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// =============================================================================
+// SSE ENDPOINT FOR REAL-TIME AQI DATA
+// =============================================================================
+
+app.get('/api/aqi-stream', (req, res) => {
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+    
+    // Send initial data immediately
+    const initialData = generateAQIData();
+    res.write(`data: ${JSON.stringify(initialData)}\n\n`);
+    
+    // Add client to set
+    sseClients.add(res);
+    console.log(`SSE client connected. Total clients: ${sseClients.size}`);
+    
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+    }, 30000);
+    
+    // Remove client when connection closes
+    req.on('close', () => {
+        clearInterval(heartbeat);
+        sseClients.delete(res);
+        console.log(`SSE client disconnected. Total clients: ${sseClients.size}`);
+    });
+});
+
+// Get current AQI snapshot (for initial load)
+app.get('/api/aqi-snapshot', (req, res) => {
+    const data = generateAQIData();
+    res.json(data);
+});
+
+// Get historical AQI data (simulated)
+app.get('/api/aqi-history', (req, res) => {
+    const { city, hours = 24 } = req.query;
+    const now = Date.now();
+    const history = [];
+    
+    for (let i = 0; i < hours; i++) {
+        const timestamp = new Date(now - i * 3600000).toISOString();
+        const hour = new Date(timestamp).getHours();
+        const timeMultiplier = hour < 8 || hour > 18 ? 1.15 : hour < 12 ? 0.95 : 1.05;
+        
+        if (city && cityData[city]) {
+            const data = cityData[city];
+            const variation = (Math.random() - 0.5) * 15;
+            history.push({
+                timestamp,
+                aqi: Math.max(0, Math.round(data.baseAqi * timeMultiplier + variation)),
+                pm25: Math.max(0, Math.round(data.basePm25 * timeMultiplier + variation * 0.5)),
+            });
+        } else {
+            // Return all cities
+            const allCities = {};
+            for (const [name, data] of Object.entries(cityData)) {
+                const variation = (Math.random() - 0.5) * 15;
+                allCities[name] = {
+                    aqi: Math.max(0, Math.round(data.baseAqi * timeMultiplier + variation)),
+                    pm25: Math.max(0, Math.round(data.basePm25 * timeMultiplier + variation * 0.5)),
+                };
+            }
+            history.push({ timestamp, cities: allCities });
+        }
+    }
+    
+    res.json({ history: history.reverse() });
 });
 
 // Chat endpoint

@@ -1,4 +1,10 @@
-export type ViewType = 'dashboard' | 'chat' | 'analysis' | 'maps';
+export type ViewType = 'dashboard' | 'air-quality-map' | 'analysis' | 'settings';
+
+export type TemperatureUnit = 'fahrenheit' | 'celsius';
+export type WindSpeedUnit = 'mph' | 'kmh' | 'ms';
+export type PressureUnit = 'inHg' | 'hPa' | 'mbar';
+export type FontSize = 'small' | 'medium' | 'large';
+export type RefreshInterval = 5 | 15 | 30 | 60 | 'manual';
 
 export interface ChatMessage {
   role: 'user' | 'model';
