@@ -86,7 +86,8 @@ impl PurpleAirClient {
                 continue;
             }
 
-            let n = bucket.len() as f64;
+            let count = bucket.len();
+            let n = count as f64;
             let pm25 = round2(bucket.iter().map(|s| s.pm25).sum::<f64>() / n);
             let pm10 = round2(bucket.iter().map(|s| s.pm10).sum::<f64>() / n);
             let ozone = round2(bucket.iter().map(|s| s.ozone).sum::<f64>() / n);
@@ -116,6 +117,8 @@ impl PurpleAirClient {
                 humidity,
                 wind_speed: 0.0,      // PurpleAir doesn't provide wind
                 wind_direction: 0.0,
+                source: "purpleair",
+                raw_sensor_count: Some(count as i32),
             });
         }
 

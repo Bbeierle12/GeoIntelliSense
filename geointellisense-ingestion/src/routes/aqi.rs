@@ -1,8 +1,9 @@
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::aqi;
+use crate::broadcast::AppState;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,14 +13,28 @@ pub struct SnapshotResponse {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-pub async fn snapshot() -> Json<SnapshotResponse> {
-    let stations = aqi::stations();
-    let readings = aqi::generate_readings(&stations);
+pub async fn snapshot(State(state): State<AppState>) -> Json<SnapshotResponse> {
+    let now = chrono::Utc::now();
+
+    let readings = {
+        let cached = state.cache.read().await;
+        match cached.as_ref() {
+            Some(live) => live
+                .iter()
+                .map(|r| aqi::AqiReading { timestamp: now, ..r.clone() })
+                .collect(),
+            None => {
+                let stations = aqi::stations();
+                aqi::generate_readings(&stations)
+            }
+        }
+    };
+
     let count = readings.len();
     Json(SnapshotResponse {
         readings,
         station_count: count,
-        timestamp: chrono::Utc::now(),
+        timestamp: now,
     })
 }
 

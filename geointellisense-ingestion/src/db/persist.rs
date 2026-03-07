@@ -6,8 +6,9 @@ pub async fn write_readings(pool: &PgPool, readings: &[AqiReading]) {
     for r in readings {
         let result = sqlx::query(
             "INSERT INTO sensor_readings \
-             (time, location_id, pm25, pm10, o3, no2, so2, co, aqi, temperature, humidity, wind_speed, wind_direction) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
+             (time, location_id, pm25, pm10, o3, no2, so2, co, aqi, \
+              temperature, humidity, wind_speed, wind_direction, source, raw_sensor_count) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
         )
         .bind(r.timestamp)
         .bind(r.station_id)
@@ -22,6 +23,8 @@ pub async fn write_readings(pool: &PgPool, readings: &[AqiReading]) {
         .bind(r.humidity)
         .bind(r.wind_speed)
         .bind(r.wind_direction)
+        .bind(r.source)
+        .bind(r.raw_sensor_count)
         .execute(pool)
         .await;
 

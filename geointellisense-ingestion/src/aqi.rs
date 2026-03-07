@@ -35,6 +35,9 @@ pub struct AqiReading {
     pub humidity: f64,
     pub wind_speed: f64,
     pub wind_direction: f64,
+    pub source: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_sensor_count: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +128,8 @@ pub fn generate_readings(stations: &[Station]) -> Vec<AqiReading> {
                 humidity: round2(rng.gen_range(30.0..85.0)),
                 wind_speed: round2(rng.gen_range(0.0..25.0)),
                 wind_direction: round2(rng.gen_range(0.0..360.0)),
+                source: "mock",
+                raw_sensor_count: None,
             }
         })
         .collect()

@@ -9,13 +9,15 @@ use crate::purpleair::PurpleAirClient;
 
 pub type AqiBroadcast = broadcast::Sender<Arc<Vec<AqiReading>>>;
 
-/// Cached result from the most recent PurpleAir fetch.
-type LiveCache = Arc<RwLock<Option<Vec<AqiReading>>>>;
+/// Shared cache of the latest readings (from PurpleAir or mock).
+/// Used by both the broadcast loop and the snapshot endpoint.
+pub type LiveCache = Arc<RwLock<Option<Vec<AqiReading>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
     pub tx: AqiBroadcast,
     pub pool: PgPool,
+    pub cache: LiveCache,
 }
 
 pub fn create() -> AqiBroadcast {
@@ -26,12 +28,12 @@ pub fn create() -> AqiBroadcast {
 pub fn spawn_ticker(
     tx: AqiBroadcast,
     pool: PgPool,
+    cache: LiveCache,
     pa_client: Option<PurpleAirClient>,
     broadcast_secs: u64,
     purpleair_secs: u64,
 ) {
     let stations = aqi::stations();
-    let cache: LiveCache = Arc::new(RwLock::new(None));
 
     // If we have a PurpleAir client, spawn a separate fetcher on a slower cadence.
     if let Some(client) = pa_client {
@@ -46,7 +48,6 @@ pub fn spawn_ticker(
 
                 match pa.fetch_readings(&stations_pa).await {
                     Ok(mut readings) if !readings.is_empty() => {
-                        // Fill gaps: if PurpleAir didn't cover a station, use mock
                         let covered: std::collections::HashSet<_> =
                             readings.iter().map(|r| r.station_id).collect();
                         let mock = aqi::generate_readings(&stations_pa);
@@ -87,7 +88,6 @@ pub fn spawn_ticker(
                 let cached = cache.read().await;
                 match cached.as_ref() {
                     Some(live) => {
-                        // Re-stamp with current time so SSE consumers see fresh timestamps
                         let now = chrono::Utc::now();
                         live.iter()
                             .map(|r| AqiReading { timestamp: now, ..r.clone() })

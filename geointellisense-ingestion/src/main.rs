@@ -5,6 +5,9 @@ mod db;
 mod purpleair;
 mod routes;
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 use broadcast::AppState;
 use config::Config;
 use purpleair::PurpleAirClient;
@@ -37,9 +40,12 @@ async fn main() {
     }
 
     let tx = broadcast::create();
+    let cache = Arc::new(RwLock::new(None));
+
     broadcast::spawn_ticker(
         tx.clone(),
         pool.clone(),
+        cache.clone(),
         pa_client,
         cfg.broadcast_interval_secs,
         cfg.purpleair_interval_secs,
@@ -49,7 +55,7 @@ async fn main() {
         "AQI broadcast started, persisting to sensor_readings"
     );
 
-    let state = AppState { tx, pool };
+    let state = AppState { tx, pool, cache };
 
     let app = routes::router(state)
         .layer(CorsLayer::permissive())
