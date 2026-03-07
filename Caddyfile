@@ -1,0 +1,22 @@
+:8080 {
+	# Rust ingestion service — SSE, real-time AQI, snapshots
+	handle /api/aqi-stream {
+		reverse_proxy ingestion:3001
+	}
+	handle /api/aqi-snapshot {
+		reverse_proxy ingestion:3001
+	}
+	handle /api/aqi-history {
+		reverse_proxy ingestion:3001
+	}
+	handle /health {
+		reverse_proxy ingestion:3001
+	}
+
+	# Python analytics service — AI, historical, forecast
+	handle /api/* {
+		reverse_proxy analytics:3002
+	}
+
+	respond "GeoIntelliSense API Gateway" 200
+}

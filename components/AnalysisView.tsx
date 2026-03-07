@@ -20,7 +20,7 @@ import {
     getDeepAnalysisResponse,
     getPredictiveAnalysisResponse,
     getWeatherForecastResponse
-} from '../services/geminiService';
+} from '../services/aiService';
 import { useApiStatus } from '../hooks/useApiStatus';
 import type { AnalysisTool, GroundingChunk } from '../types';
 import { LightbulbIcon } from './icons/LightbulbIcon';
@@ -34,37 +34,37 @@ import { dashboardData, cityLocations, LocationKey } from '../data/dashboardData
 const toolConfig = {
     quick: {
         name: 'Quick Insight',
-        description: 'Fast response for simple questions. Powered by Gemini Flash-Lite.',
+        description: 'Fast response for simple questions. Powered by Claude Haiku.',
         icon: LightbulbIcon,
         placeholder: 'e.g., Define atmospheric river.'
     },
     search: {
         name: 'Web Search',
-        description: 'Get up-to-date information from the web. Powered by Gemini Flash with Google Search.',
+        description: 'Get up-to-date information from the web. Powered by Claude Sonnet.',
         icon: SearchIcon,
         placeholder: 'e.g., Latest news on California drought conditions.'
     },
     maps: {
         name: 'Local Info',
-        description: 'Find location-based information. Powered by Gemini Flash with Google Maps.',
+        description: 'Find location-based information. Powered by Claude Sonnet.',
         icon: MapIcon,
         placeholder: 'e.g., Find air quality monitoring stations near Fresno.'
     },
     deep: {
         name: 'Deep Dive',
-        description: 'For complex, multi-step reasoning. Powered by Gemini Pro with Thinking Mode.',
+        description: 'For complex, multi-step reasoning. Powered by Claude Opus (Extended Thinking).',
         icon: SparklesIcon,
         placeholder: 'e.g., Analyze the long-term impact of wildfires on SJV agriculture.'
     },
     predictive: {
         name: 'Predictive AQI',
-        description: 'Forecast future air quality trends using historical data. Powered by Gemini Pro.',
+        description: 'Forecast future air quality trends using historical data. Powered by Claude Sonnet.',
         icon: TrendingUpIcon,
         placeholder: 'Select a location below to generate an AQI forecast.'
     },
     weather: {
         name: 'Weather Forecast',
-        description: 'Forecast future temperature and precipitation. Powered by Gemini Pro.',
+        description: 'Forecast future temperature and precipitation. Powered by Claude Sonnet.',
         icon: CloudIcon,
         placeholder: 'Select a location below to generate a weather forecast.'
     }
@@ -77,7 +77,7 @@ const parseMonthString = (monthStr: string): Date => {
 };
 
 const AnalysisView: React.FC = () => {
-    const { isAvailable: hasGeminiKey, isLoading: isApiLoading, error: apiError } = useApiStatus();
+    const { isAvailable: hasApiKey, isLoading: isApiLoading, error: apiError } = useApiStatus();
     const [tool, setTool] = useState<AnalysisTool>('predictive');
     const [prompt, setPrompt] = useState('');
     const [customFactors, setCustomFactors] = useState('');
@@ -271,14 +271,14 @@ const AnalysisView: React.FC = () => {
                 {result && <span>Analysis complete. Results are now available.</span>}
             </div>
 
-            {!hasGeminiKey && (
+            {!hasApiKey && (
                 <div className="bg-yellow-900/30 border border-yellow-700/50 text-yellow-200 p-4 rounded-lg flex items-start gap-3">
                     <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                     <div>
                         <p className="font-semibold">Backend Server Required</p>
-                        <p className="text-sm mt-1">Start the backend server with <code className="bg-yellow-950 px-1.5 py-0.5 rounded">npm run server</code> and ensure <code className="bg-yellow-950 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> is configured in your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env.local</code> file.</p>
+                        <p className="text-sm mt-1">Start the backend services with <code className="bg-yellow-950 px-1.5 py-0.5 rounded">docker compose up</code> and ensure <code className="bg-yellow-950 px-1.5 py-0.5 rounded">ANTHROPIC_API_KEY</code> is configured in your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env</code> file.</p>
                     </div>
                 </div>
             )}
@@ -427,9 +427,9 @@ const AnalysisView: React.FC = () => {
                  )}
                 <button
                     onClick={handleSubmit}
-                    disabled={isLoading || (!isForecastTool && !prompt) || !hasGeminiKey}
+                    disabled={isLoading || (!isForecastTool && !prompt) || !hasApiKey}
                     className="w-full py-3 bg-brand-primary text-white font-semibold rounded-md hover:bg-sky-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                    title={!hasGeminiKey ? "Start the backend server to enable analysis" : ""}
+                    title={!hasApiKey ? "Start the backend server to enable analysis" : ""}
                 >
                     {isLoading ? (
                         <>

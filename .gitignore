@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+!.env.local.example
+
+# Rust
+geointellisense-ingestion/target/
+
+# Python
+geointellisense-analytics/__pycache__/
+geointellisense-analytics/**/__pycache__/
+geointellisense-analytics/.venv/
+geointellisense-analytics/*.pyc
+
+# Docker
+docker-compose.override.yml

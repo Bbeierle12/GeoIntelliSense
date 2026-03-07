@@ -283,16 +283,64 @@ export function useRealtimeAQI(options: UseRealtimeAQIOptions = {}): UseRealtime
         }
       };
 
-      eventSource.onmessage = (event) => {
+      eventSource.addEventListener('aqi-update', (event) => {
         try {
-          const parsedData = JSON.parse(event.data) as RealtimeAQIData;
+          const readings = JSON.parse(event.data) as Array<{
+            stationId: string;
+            stationName: string;
+            lat: number;
+            lng: number;
+            county: string;
+            timestamp: string;
+            aqi: number;
+            pm25: number;
+            pm10: number;
+            o3: number;
+            no2: number;
+            so2: number;
+            co: number;
+            temperature: number;
+            humidity: number;
+            windSpeed: number;
+            windDirection: number;
+          }>;
+
+          const timestamp = readings[0]?.timestamp || new Date().toISOString();
+          const cities: RealtimeCityData[] = readings.map(r => ({
+            id: r.stationName.split('-')[0],
+            name: r.stationName.split('-')[0],
+            lat: r.lat,
+            lng: r.lng,
+            aqi: r.aqi,
+            pm25: r.pm25,
+            pm10: r.pm10,
+            o3: r.o3,
+            no2: r.no2,
+            windSpeed: r.windSpeed,
+            windDirection: r.windDirection,
+            temperature: r.temperature,
+            humidity: r.humidity,
+            timestamp,
+          }));
+
+          const aqiValues = cities.map(c => c.aqi);
+          const parsedData: RealtimeAQIData = {
+            cities,
+            stats: {
+              averageAQI: Math.round(aqiValues.reduce((a, b) => a + b, 0) / aqiValues.length),
+              maxAQI: Math.max(...aqiValues),
+              minAQI: Math.min(...aqiValues),
+              timestamp,
+            },
+          };
+
           setData(parsedData);
           addToHistory(parsedData);
           setLastUpdate(new Date());
         } catch (parseError) {
           console.error('[useRealtimeAQI] Failed to parse SSE data:', parseError);
         }
-      };
+      });
 
       eventSource.onerror = (err) => {
         console.error('[useRealtimeAQI] SSE error:', err);

@@ -1,15 +1,14 @@
-const API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
-const BASE_URL = 'https://api.openweathermap.org/data/2.5/air_pollution';
+const INGESTION_URL = 'http://localhost:3001/api';
 
 export interface AQIData {
-    aqi: number; // 1-5 scale from OWM, need to map to US AQI if possible or just use raw
+    aqi: number;
     pm25: number;
     pm10: number;
     no2: number;
     so2: number;
     co: number;
     o3: number;
-    usAqi?: number; // Calculated or fetched
+    usAqi?: number;
 }
 
 export class AirQualityService {
@@ -24,49 +23,39 @@ export class AirQualityService {
         return AirQualityService.instance;
     }
 
-    async getCurrentAQI(lat: number, lon: number): Promise<AQIData> {
-        if (!API_KEY) {
-            console.warn('OpenWeatherMap API key not found. Using mock AQI data.');
-            return this.getMockAQI();
-        }
-
+    async getCurrentAQI(_lat: number, _lng: number): Promise<AQIData> {
         try {
-            const response = await fetch(`${BASE_URL}?lat=${lat}&lon=${lon}&appid=${API_KEY}`);
-            if (!response.ok) throw new Error('AQI API request failed');
+            const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
+            if (!response.ok) throw new Error('AQI snapshot request failed');
 
             const data = await response.json();
-            const components = data.list[0].components;
-            const owmAqi = data.list[0].main.aqi;
+            // Find the closest station to the requested coordinates
+            const readings = data.readings as Array<{
+                lat: number; lng: number;
+                aqi: number; pm25: number; pm10: number;
+                no2: number; so2: number; co: number; o3: number;
+            }>;
 
-            // OWM returns AQI 1-5. We can approximate US AQI or just return raw components.
-            // For this dashboard, we want US AQI (0-500).
-            // Converting PM2.5 to US AQI is a common approximation.
-            const usAqi = this.calculateUSAQI(components.pm2_5);
+            const closest = readings.reduce((best, r) => {
+                const dist = Math.hypot(r.lat - _lat, r.lng - _lng);
+                const bestDist = Math.hypot(best.lat - _lat, best.lng - _lng);
+                return dist < bestDist ? r : best;
+            }, readings[0]);
 
             return {
-                aqi: owmAqi,
-                usAqi: usAqi,
-                pm25: components.pm2_5,
-                pm10: components.pm10,
-                no2: components.no2,
-                so2: components.so2,
-                co: components.co,
-                o3: components.o3
+                aqi: closest.aqi,
+                usAqi: closest.aqi,
+                pm25: closest.pm25,
+                pm10: closest.pm10,
+                no2: closest.no2,
+                so2: closest.so2,
+                co: closest.co,
+                o3: closest.o3,
             };
         } catch (error) {
-            console.error('Error fetching AQI:', error);
+            console.error('Error fetching AQI from ingestion service:', error);
             return this.getMockAQI();
         }
-    }
-
-    // Simplified PM2.5 to AQI conversion (approximate)
-    private calculateUSAQI(pm25: number): number {
-        if (pm25 <= 12.0) return Math.round((50 - 0) / (12.0 - 0) * (pm25 - 0) + 0);
-        if (pm25 <= 35.4) return Math.round((100 - 51) / (35.4 - 12.1) * (pm25 - 12.1) + 51);
-        if (pm25 <= 55.4) return Math.round((150 - 101) / (55.4 - 35.5) * (pm25 - 35.5) + 101);
-        if (pm25 <= 150.4) return Math.round((200 - 151) / (150.4 - 55.5) * (pm25 - 55.5) + 151);
-        if (pm25 <= 250.4) return Math.round((300 - 201) / (250.4 - 150.5) * (pm25 - 150.5) + 201);
-        return Math.round((500 - 301) / (500.4 - 250.5) * (pm25 - 250.5) + 301);
     }
 
     private getMockAQI(): AQIData {

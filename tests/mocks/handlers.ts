@@ -8,7 +8,7 @@ import { vi } from 'vitest';
 // Mock API responses
 export const mockHealthResponse = { status: 'ok' };
 export const mockMapsConfigResponse = { apiKey: 'mock-google-maps-api-key' };
-export const mockChatResponse = { response: 'This is a mock chat response from Gemini.' };
+export const mockChatResponse = { response: 'This is a mock chat response from Claude.' };
 
 // Mock fetch implementation
 export const createMockFetch = (options?: {

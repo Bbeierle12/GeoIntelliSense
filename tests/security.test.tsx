@@ -16,7 +16,7 @@ describe('Security Tests', () => {
     it('should not have process.env exposed on the window object', () => {
       // In a secure client-side build, process.env should not be directly accessible
       // or should not contain sensitive API keys
-      expect((window as any).process?.env?.GEMINI_API_KEY).toBeUndefined();
+      expect((window as any).process?.env?.ANTHROPIC_API_KEY).toBeUndefined();
       expect((window as any).process?.env?.GOOGLE_MAPS_API_KEY).toBeUndefined();
     });
 
@@ -24,13 +24,13 @@ describe('Security Tests', () => {
       // Vite uses import.meta.env for environment variables
       // Sensitive keys should only be on the server
       const env = (import.meta as any).env || {};
-      expect(env.GEMINI_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.GOOGLE_MAPS_API_KEY).toBeUndefined();
     });
 
     it('should not expose API keys in global scope', () => {
       // Check that API keys are not leaked to global scope
-      expect((globalThis as any).GEMINI_API_KEY).toBeUndefined();
+      expect((globalThis as any).ANTHROPIC_API_KEY).toBeUndefined();
       expect((globalThis as any).GOOGLE_MAPS_API_KEY).toBeUndefined();
       expect((globalThis as any).apiKey).toBeUndefined();
     });
@@ -86,7 +86,7 @@ describe('Security Tests', () => {
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
         expect(result.current.isAvailable).toBe(false);
-        expect(result.current.error).toBe('Backend server is not responding correctly');
+        expect(result.current.error).toBe('Backend services are not running. Start them with: docker compose up');
       });
     });
 
@@ -98,7 +98,7 @@ describe('Security Tests', () => {
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
         expect(result.current.isAvailable).toBe(false);
-        expect(result.current.error).toBe('Backend server is not running. Start it with: npm run server');
+        expect(result.current.error).toBe('Backend services are not running. Start them with: docker compose up');
       });
     });
 
@@ -112,7 +112,7 @@ describe('Security Tests', () => {
       renderHook(() => useApiStatus());
       
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith('http://localhost:3001/api/health');
+        expect(mockFetch).toHaveBeenCalledWith('http://localhost:3001/health');
       });
     });
   });
@@ -137,9 +137,9 @@ describe('Security Tests', () => {
       global.fetch = mockFetch;
       
       // Simulate fetching maps config (as MapView does)
-      await fetch('http://localhost:3001/api/maps-config');
+      await fetch('http://localhost:3002/api/maps-config');
       
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:3001/api/maps-config');
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:3002/api/maps-config');
     });
 
     it('should handle missing API key configuration gracefully', async () => {
@@ -149,7 +149,7 @@ describe('Security Tests', () => {
         json: () => Promise.resolve({ error: 'API key not configured' }),
       });
       
-      const response = await fetch('http://localhost:3001/api/maps-config');
+      const response = await fetch('http://localhost:3002/api/maps-config');
       
       expect(response.ok).toBe(false);
       expect(response.status).toBe(500);

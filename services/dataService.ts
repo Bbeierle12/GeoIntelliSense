@@ -1,7 +1,9 @@
 // Normalized data interfaces
 import { weatherService } from './WeatherService';
 import { airQualityService } from './AirQualityService';
-import { dashboardData, cityLocations } from '../data/dashboardData'; // Keep for historical/fallback
+import { dashboardData, cityLocations } from '../data/dashboardData'; // Keep for fallback
+
+const ANALYTICS_URL = 'http://localhost:3002/api';
 
 export interface AQIRecord {
   id: string;
@@ -111,7 +113,7 @@ export class DataService {
           locationId: loc.id,
           locationName: loc.name,
           timestamp: new Date(),
-          aqi: data.usAqi || data.aqi, // Prefer US AQI
+          aqi: data.usAqi || data.aqi,
           pm25: data.pm25,
           pm10: data.pm10,
           no2: data.no2,
@@ -121,7 +123,6 @@ export class DataService {
         });
       } catch (error) {
         console.error(`Failed to fetch AQI for ${loc.name}`, error);
-        // Fallback to mock data if available
         const mockData = dashboardData[loc.name as keyof typeof dashboardData];
         if (mockData && 'currentAqi' in mockData) {
           records.push({
@@ -157,7 +158,7 @@ export class DataService {
           timestamp: new Date(),
           temperature: data.temp,
           humidity: data.humidity,
-          precipitation: 0, // Current precip not always available in basic call
+          precipitation: 0,
           windSpeed: data.windSpeed,
           windDirection: data.windDirection,
           pressure: data.pressure,
@@ -165,7 +166,6 @@ export class DataService {
         });
       } catch (error) {
         console.error(`Failed to fetch weather for ${loc.name}`, error);
-        // Fallback
         const mockData = dashboardData[loc.name as keyof typeof dashboardData];
         if (mockData && 'currentWeather' in mockData) {
           records.push({
@@ -186,98 +186,48 @@ export class DataService {
     return records;
   }
 
-  // Fetch historical AQI data (Mock for now)
+  // Fetch historical AQI data from Python analytics service
   async getHistoricalAQI(
     locationIds?: string[],
     startDate?: Date,
     endDate?: Date
   ): Promise<HistoricalAQIRecord[]> {
-    const records: HistoricalAQIRecord[] = [];
+    try {
+      const params = new URLSearchParams();
+      if (locationIds?.length) params.set('location_ids', locationIds.join(','));
+      if (startDate) params.set('start_date', startDate.toISOString().split('T')[0]);
+      if (endDate) params.set('end_date', endDate.toISOString().split('T')[0]);
 
-    // Use existing mock data for history
-    Object.entries(dashboardData).forEach(([locationName, data]) => {
-      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
+      const response = await fetch(`${ANALYTICS_URL}/historical-aqi?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      if ((!locationIds || locationIds.includes(locationId)) &&
-        'historicalAqi' in data) {
-        data.historicalAqi.forEach(monthData => {
-          const [monthStr, yearStr] = monthData.month.split(' ');
-          const year = 2000 + parseInt(yearStr.replace("'", ""));
-
-          const record: HistoricalAQIRecord = {
-            id: `hist_aqi_${locationId}_${monthData.month}`,
-            locationId,
-            locationName,
-            month: monthStr,
-            year,
-            avgAqi: monthData.avgAqi,
-            avgPm25: monthData.avgPm25
-          };
-
-          records.push(record);
-        });
-      }
-    });
-
-    if (startDate || endDate) {
-      return records.filter(record => {
-        const recordDate = new Date(record.year, getMonthNumber(record.month));
-        if (startDate && recordDate < startDate) return false;
-        if (endDate && recordDate > endDate) return false;
-        return true;
-      });
+      return await response.json() as HistoricalAQIRecord[];
+    } catch (error) {
+      console.error('Failed to fetch historical AQI from analytics, falling back to mock:', error);
+      return this.getHistoricalAQIFallback(locationIds, startDate, endDate);
     }
-
-    return records;
   }
 
-  // Fetch historical weather data (Mock for now)
+  // Fetch historical weather data from Python analytics service
   async getHistoricalWeather(
     locationIds?: string[],
     startDate?: Date,
     endDate?: Date
   ): Promise<HistoricalWeatherRecord[]> {
-    const records: HistoricalWeatherRecord[] = [];
+    try {
+      const params = new URLSearchParams();
+      if (locationIds?.length) params.set('location_ids', locationIds.join(','));
+      if (startDate) params.set('start_date', startDate.toISOString().split('T')[0]);
+      if (endDate) params.set('end_date', endDate.toISOString().split('T')[0]);
 
-    Object.entries(dashboardData).forEach(([locationName, data]) => {
-      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
+      const response = await fetch(`${ANALYTICS_URL}/historical-weather?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      if ((!locationIds || locationIds.includes(locationId)) &&
-        'historicalWeather' in data) {
-        data.historicalWeather.forEach(monthData => {
-          const [monthStr, yearStr] = monthData.month.split(' ');
-          const year = 2000 + parseInt(yearStr.replace("'", ""));
-
-          const record: HistoricalWeatherRecord = {
-            id: `hist_weather_${locationId}_${monthData.month}`,
-            locationId,
-            locationName,
-            month: monthStr,
-            year,
-            avgTemp: monthData.avgTemp,
-            totalPrecipitation: monthData.precipitation,
-            avgHumidity: Math.round(Math.max(20, 80 - (monthData.avgTemp - 50) * 0.8 + (Math.random() * 10))),
-            avgWindSpeed: Math.round(5 + Math.random() * 5),
-            maxUV: Math.round(Math.max(2, Math.min(11, (monthData.avgTemp - 40) / 5))),
-            avgSolarRad: Math.round(Math.max(200, (monthData.avgTemp - 30) * 10)),
-            avgEt0: Math.round(Math.max(1, (monthData.avgTemp - 40) / 10) * 10) / 10
-          };
-
-          records.push(record);
-        });
-      }
-    });
-
-    if (startDate || endDate) {
-      return records.filter(record => {
-        const recordDate = new Date(record.year, getMonthNumber(record.month));
-        if (startDate && recordDate < startDate) return false;
-        if (endDate && recordDate > endDate) return false;
-        return true;
-      });
+      return await response.json() as HistoricalWeatherRecord[];
+    } catch (error) {
+      console.error('Failed to fetch historical weather from analytics, falling back to mock:', error);
+      return this.getHistoricalWeatherFallback(locationIds, startDate, endDate);
     }
-
-    return records;
   }
 
   // Fetch weather forecast
@@ -301,7 +251,7 @@ export class DataService {
             tempHigh: day.temp.max,
             tempLow: day.temp.min,
             humidity: day.humidity,
-            precipProbability: 0, // Basic forecast might not have this
+            precipProbability: 0,
             windSpeed: 0,
             uvIndex: 0,
             conditions: day.description,
@@ -310,28 +260,6 @@ export class DataService {
         });
       } catch (error) {
         console.error(`Failed to fetch forecast for ${loc.name}`, error);
-        // Fallback
-        const mockData = dashboardData[loc.name as keyof typeof dashboardData];
-        if (mockData && 'weatherForecast' in mockData) {
-          const today = new Date();
-          mockData.weatherForecast.forEach((dayData, index) => {
-            const forecastDate = new Date(today);
-            forecastDate.setDate(today.getDate() + index);
-            records.push({
-              id: `forecast_${loc.id}_${dayData.day}`,
-              locationId: loc.id,
-              locationName: loc.name,
-              date: forecastDate,
-              tempHigh: dayData.temp + 5,
-              tempLow: dayData.temp - 5,
-              humidity: dayData.humidity,
-              precipProbability: 0,
-              windSpeed: 0,
-              uvIndex: 0,
-              conditions: 'Clear'
-            });
-          });
-        }
       }
     });
 
@@ -353,11 +281,10 @@ export class DataService {
       };
     });
 
-    // Add Valley Average as a virtual location if needed
     locations.unshift({
       id: 'valley_average',
       name: 'Valley Average',
-      latitude: 36.7378, // Approx center (Fresno)
+      latitude: 36.7378,
       longitude: -119.7871
     });
 
@@ -372,17 +299,105 @@ export class DataService {
       this.getLocations()
     ]);
 
-    // Filter out 'Valley Average' from the calculation if it's in the list to avoid double counting
     const validAqi = currentAqi.filter(r => r.locationId !== 'valley_average');
     const validWeather = currentWeather.filter(r => r.locationId !== 'valley_average');
 
     return {
-      totalLocations: locations.length - 1, // Exclude virtual
+      totalLocations: locations.length - 1,
       avgAqi: validAqi.length ? Math.round(validAqi.reduce((sum, r) => sum + r.aqi, 0) / validAqi.length) : 0,
       avgTemp: validWeather.length ? Math.round(validWeather.reduce((sum, r) => sum + r.temperature, 0) / validWeather.length) : 0,
       alertLocations: validAqi.filter(r => r.aqi > 100).length,
       lastUpdated: new Date()
     };
+  }
+
+  // ---- Fallback methods using dashboardData ----
+
+  private getHistoricalAQIFallback(
+    locationIds?: string[],
+    startDate?: Date,
+    endDate?: Date
+  ): HistoricalAQIRecord[] {
+    const records: HistoricalAQIRecord[] = [];
+
+    Object.entries(dashboardData).forEach(([locationName, data]) => {
+      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
+
+      if ((!locationIds || locationIds.includes(locationId)) &&
+        'historicalAqi' in data) {
+        data.historicalAqi.forEach(monthData => {
+          const [monthStr, yearStr] = monthData.month.split(' ');
+          const year = 2000 + parseInt(yearStr.replace("'", ""));
+
+          records.push({
+            id: `hist_aqi_${locationId}_${monthData.month}`,
+            locationId,
+            locationName,
+            month: monthStr,
+            year,
+            avgAqi: monthData.avgAqi,
+            avgPm25: monthData.avgPm25
+          });
+        });
+      }
+    });
+
+    if (startDate || endDate) {
+      return records.filter(record => {
+        const recordDate = new Date(record.year, getMonthNumber(record.month));
+        if (startDate && recordDate < startDate) return false;
+        if (endDate && recordDate > endDate) return false;
+        return true;
+      });
+    }
+
+    return records;
+  }
+
+  private getHistoricalWeatherFallback(
+    locationIds?: string[],
+    startDate?: Date,
+    endDate?: Date
+  ): HistoricalWeatherRecord[] {
+    const records: HistoricalWeatherRecord[] = [];
+
+    Object.entries(dashboardData).forEach(([locationName, data]) => {
+      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
+
+      if ((!locationIds || locationIds.includes(locationId)) &&
+        'historicalWeather' in data) {
+        data.historicalWeather.forEach(monthData => {
+          const [monthStr, yearStr] = monthData.month.split(' ');
+          const year = 2000 + parseInt(yearStr.replace("'", ""));
+
+          records.push({
+            id: `hist_weather_${locationId}_${monthData.month}`,
+            locationId,
+            locationName,
+            month: monthStr,
+            year,
+            avgTemp: monthData.avgTemp,
+            totalPrecipitation: monthData.precipitation,
+            avgHumidity: Math.round(Math.max(20, 80 - (monthData.avgTemp - 50) * 0.8 + (Math.random() * 10))),
+            avgWindSpeed: Math.round(5 + Math.random() * 5),
+            maxUV: Math.round(Math.max(2, Math.min(11, (monthData.avgTemp - 40) / 5))),
+            avgSolarRad: Math.round(Math.max(200, (monthData.avgTemp - 30) * 10)),
+            avgEt0: Math.round(Math.max(1, (monthData.avgTemp - 40) / 10) * 10) / 10
+          });
+        });
+      }
+    });
+
+    if (startDate || endDate) {
+      return records.filter(record => {
+        const recordDate = new Date(record.year, getMonthNumber(record.month));
+        if (startDate && recordDate < startDate) return false;
+        if (endDate && recordDate > endDate) return false;
+        return true;
+      });
+    }
+
+    return records;
   }
 }
 

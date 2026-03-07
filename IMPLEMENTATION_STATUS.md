@@ -46,16 +46,17 @@
 ## 🚀 How to Run the Application
 
 ### Prerequisites
-1. Create `.env.local` file with your API keys:
+1. Create `.env` file with your API keys:
 ```bash
-GEMINI_API_KEY=your_gemini_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 ```
 
 ### Development Mode
-Run both backend and frontend concurrently:
+Start backend services and frontend:
 ```bash
-npm run dev:full
+docker compose up -d
+npm run dev
 ```
 
 Or run separately:
@@ -145,10 +146,10 @@ The build shows a warning about chunk size (696KB). This will be addressed in Ph
 
 ```
 Frontend (React + Vite)
-    ↓
-Backend Proxy (Express.js)
-    ↓
-External APIs (Gemini, Google Maps)
+    ↓                    ↓
+Rust Ingestion (Axum)   Python Analytics (FastAPI)
+    ↓                    ↓
+TimescaleDB/PostGIS     Anthropic Claude API
 ```
 
 This architecture ensures:

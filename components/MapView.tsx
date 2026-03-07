@@ -323,7 +323,7 @@ const MapView: React.FC = () => {
 
         try {
             // Fetch API key from backend
-            const response = await fetch('http://localhost:3001/api/maps-config');
+            const response = await fetch('http://localhost:3002/api/maps-config');
             if (!response.ok) {
                 throw new Error('Failed to fetch Google Maps API key from backend');
             }

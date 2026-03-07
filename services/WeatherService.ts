@@ -1,7 +1,7 @@
-import { calculateFeelsLike, calculateET0, determineWeatherCondition } from '../utils/weatherUtils';
+import { calculateFeelsLike, calculateET0 } from '../utils/weatherUtils';
 
-const API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
-const BASE_URL = 'https://api.openweathermap.org/data/2.5';
+const INGESTION_URL = 'http://localhost:3001/api';
+const ANALYTICS_URL = 'http://localhost:3002/api';
 
 export interface WeatherData {
     temp: number;
@@ -14,7 +14,7 @@ export interface WeatherData {
     icon: string;
     feelsLike: number;
     et0: number;
-    solarRadiation: number; // Estimated
+    solarRadiation: number;
 }
 
 export interface ForecastData {
@@ -37,86 +37,84 @@ export class WeatherService {
         return WeatherService.instance;
     }
 
-    async getCurrentWeather(lat: number, lon: number): Promise<WeatherData> {
-        if (!API_KEY) {
-            console.warn('OpenWeatherMap API key not found. Using mock data.');
-            return this.getMockWeather();
-        }
-
+    async getCurrentWeather(lat: number, _lon: number): Promise<WeatherData> {
         try {
-            const response = await fetch(`${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=imperial&appid=${API_KEY}`);
-            if (!response.ok) throw new Error('Weather API request failed');
+            const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
+            if (!response.ok) throw new Error('Snapshot request failed');
 
             const data = await response.json();
+            const readings = data.readings as Array<{
+                lat: number; lng: number;
+                temperature: number; humidity: number;
+                windSpeed: number; windDirection: number;
+            }>;
 
-            // Estimate solar radiation based on cloud cover and time of day (simplified)
-            const cloudCover = data.clouds.all;
-            const hour = new Date().getHours();
-            const isDay = hour > 6 && hour < 20;
-            const maxSolar = 1000;
-            const solarRadiation = isDay ? Math.round(maxSolar * (1 - cloudCover / 100)) : 0;
+            // Find closest station
+            const closest = readings.reduce((best, r) => {
+                const dist = Math.hypot(r.lat - lat, r.lng - _lon);
+                const bestDist = Math.hypot(best.lat - lat, best.lng - _lon);
+                return dist < bestDist ? r : best;
+            }, readings[0]);
 
+            const solarRadiation = 600; // Estimated default
             return {
-                temp: Math.round(data.main.temp),
-                humidity: data.main.humidity,
-                windSpeed: Math.round(data.wind.speed),
-                windDirection: data.wind.deg,
-                pressure: data.main.pressure,
-                cloudCover: data.clouds.all,
-                description: data.weather[0].description,
-                icon: data.weather[0].icon,
-                feelsLike: calculateFeelsLike(data.main.temp, data.main.humidity, data.wind.speed),
-                et0: calculateET0(data.main.temp, data.main.humidity, data.wind.speed, solarRadiation),
-                solarRadiation
+                temp: Math.round(closest.temperature),
+                humidity: Math.round(closest.humidity),
+                windSpeed: Math.round(closest.windSpeed),
+                windDirection: Math.round(closest.windDirection),
+                pressure: 1013,
+                cloudCover: 20,
+                description: 'Live data',
+                icon: '01d',
+                feelsLike: calculateFeelsLike(closest.temperature, closest.humidity, closest.windSpeed),
+                et0: calculateET0(closest.temperature, closest.humidity, closest.windSpeed, solarRadiation),
+                solarRadiation,
             };
         } catch (error) {
-            console.error('Error fetching weather:', error);
+            console.error('Error fetching weather from ingestion:', error);
             return this.getMockWeather();
         }
     }
 
     async getForecast(lat: number, lon: number): Promise<ForecastData[]> {
-        if (!API_KEY) {
-            return this.getMockForecast();
-        }
-
         try {
-            const response = await fetch(`${BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=imperial&appid=${API_KEY}`);
-            if (!response.ok) throw new Error('Forecast API request failed');
+            const response = await fetch(`${ANALYTICS_URL}/forecast`);
+            if (!response.ok) throw new Error('Forecast request failed');
 
-            const data = await response.json();
+            const records = await response.json() as Array<{
+                locationName: string;
+                date: string;
+                tempHigh: number | null;
+                tempLow: number | null;
+                humidity: number | null;
+                conditions: string;
+                icon: string;
+            }>;
 
-            // Process 3-hour forecast into daily forecast
-            const dailyMap = new Map<string, any>();
+            // Group NWS day/night periods into daily forecasts
+            const dailyMap = new Map<string, { highs: number[]; lows: number[]; humidities: number[]; conditions: string; icon: string }>();
 
-            data.list.forEach((item: any) => {
-                const date = item.dt_txt.split(' ')[0];
-                if (!dailyMap.has(date)) {
-                    dailyMap.set(date, {
-                        temps: [],
-                        humidities: [],
-                        descriptions: [],
-                        icons: []
-                    });
+            for (const r of records) {
+                const dateKey = r.date.split('T')[0];
+                if (!dailyMap.has(dateKey)) {
+                    dailyMap.set(dateKey, { highs: [], lows: [], humidities: [], conditions: r.conditions, icon: r.icon });
                 }
-                const day = dailyMap.get(date);
-                day.temps.push(item.main.temp);
-                day.humidities.push(item.main.humidity);
-                day.descriptions.push(item.weather[0].description);
-                day.icons.push(item.weather[0].icon);
-            });
+                const day = dailyMap.get(dateKey)!;
+                if (r.tempHigh != null) day.highs.push(r.tempHigh);
+                if (r.tempLow != null) day.lows.push(r.tempLow);
+                if (r.humidity != null) day.humidities.push(r.humidity);
+            }
 
-            return Array.from(dailyMap.entries()).slice(0, 7).map(([date, values]) => ({
+            return Array.from(dailyMap.entries()).slice(0, 7).map(([date, v]) => ({
                 date,
                 temp: {
-                    min: Math.round(Math.min(...values.temps)),
-                    max: Math.round(Math.max(...values.temps))
+                    min: v.lows.length ? Math.min(...v.lows) : 60,
+                    max: v.highs.length ? Math.max(...v.highs) : 80,
                 },
-                humidity: Math.round(values.humidities.reduce((a: number, b: number) => a + b, 0) / values.humidities.length),
-                description: values.descriptions[Math.floor(values.descriptions.length / 2)],
-                icon: values.icons[Math.floor(values.icons.length / 2)]
+                humidity: v.humidities.length ? Math.round(v.humidities.reduce((a, b) => a + b, 0) / v.humidities.length) : 50,
+                description: v.conditions,
+                icon: v.icon,
             }));
-
         } catch (error) {
             console.error('Error fetching forecast:', error);
             return this.getMockForecast();

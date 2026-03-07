@@ -27,9 +27,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1TSTROmMZDi_NK0VF4oiiW_
 
    **Both API keys are required for full functionality:**
 
-   - **`GEMINI_API_KEY`** - Required for Chat and Analysis features
-     - Get it from [Google AI Studio](https://aistudio.google.com/apikey)
-     - Free tier available with generous limits
+   - **`ANTHROPIC_API_KEY`** - Required for Chat and Analysis features
+     - Get it from [Anthropic Console](https://console.anthropic.com/settings/keys)
 
    - **`GOOGLE_MAPS_API_KEY`** - Required for Interactive Map feature
      - Get it from [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/)

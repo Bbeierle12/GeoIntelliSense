@@ -7,7 +7,7 @@ export type FontSize = 'small' | 'medium' | 'large';
 export type RefreshInterval = 5 | 15 | 30 | 60 | 'manual';
 
 export interface ChatMessage {
-  role: 'user' | 'model';
+  role: 'user' | 'assistant';
   text: string;
 }
 

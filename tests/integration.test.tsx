@@ -126,7 +126,7 @@ describe('Integration Tests', () => {
       
       await waitFor(() => {
         // ChatView should show the error message about backend
-        expect(screen.getByText(/Backend server is not running/i)).toBeInTheDocument();
+        expect(screen.getByText(/Backend services are not running/i)).toBeInTheDocument();
       });
     });
 
@@ -221,8 +221,8 @@ describe('Integration Tests', () => {
       );
       
       await waitFor(() => {
-        expect(screen.getByText(/npm run server/i)).toBeInTheDocument();
-        expect(screen.getByText(/GEMINI_API_KEY/i)).toBeInTheDocument();
+        expect(screen.getByText(/docker compose up/i)).toBeInTheDocument();
+        expect(screen.getByText(/ANTHROPIC_API_KEY/i)).toBeInTheDocument();
       });
     });
 
@@ -288,7 +288,7 @@ describe('Integration Tests', () => {
       );
       
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith('http://localhost:3001/api/maps-config');
+        expect(mockFetch).toHaveBeenCalledWith('http://localhost:3002/api/maps-config');
       });
     });
 

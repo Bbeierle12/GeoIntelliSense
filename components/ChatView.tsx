@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getChatResponse } from '../services/geminiService';
+import { getChatResponse } from '../services/aiService';
 import { useApiStatus } from '../hooks/useApiStatus';
 import type { ChatMessage } from '../types';
 
@@ -20,10 +20,10 @@ const ChatView: React.FC = () => {
   useEffect(() => {
     if (!isApiLoading && messages.length === 0) {
       const initialMessage: ChatMessage = {
-        role: 'model',
+        role: 'assistant',
         text: hasApiKey
           ? "Hello! I am your geospatial analyst for the San Joaquin Valley. How can I help you today? You can ask me about air quality, weather patterns, or their connections."
-          : apiError || "⚠️ Backend server is not running. Please start it with 'npm run server' and ensure GEMINI_API_KEY is configured in your .env.local file."
+          : apiError || "⚠️ Backend services are not running. Start them with 'docker compose up' and ensure ANTHROPIC_API_KEY is configured in your .env file."
       };
       setMessages([initialMessage]);
     }
@@ -39,10 +39,10 @@ const ChatView: React.FC = () => {
 
     try {
       const responseText = await getChatResponse(input);
-      const modelMessage: ChatMessage = { role: 'model', text: responseText };
+      const modelMessage: ChatMessage = { role: 'assistant', text: responseText };
       setMessages(prev => [...prev, modelMessage]);
     } catch (error) {
-      const errorMessage: ChatMessage = { role: 'model', text: 'Sorry, I encountered an error. Please try again.' };
+      const errorMessage: ChatMessage = { role: 'assistant', text: 'Sorry, I encountered an error. Please try again.' };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);

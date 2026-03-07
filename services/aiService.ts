@@ -1,7 +1,7 @@
 
-import { GroundingChunk } from "@google/genai";
+import type { GroundingChunk } from '../types';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = 'http://localhost:3002/api';
 
 export const getChatResponse = async (message: string): Promise<string> => {
     try {
