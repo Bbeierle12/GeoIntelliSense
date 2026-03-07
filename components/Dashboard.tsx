@@ -328,8 +328,18 @@ const Dashboard: React.FC = () => {
   }, [selectedLocations, startDate, endDate, historicalWeather]);
 
   const renderCurrentConditions = () => {
-    if (loading) return <div className="text-slate-400">Loading data...</div>;
-    if (error) return <div className="text-red-400">{error}</div>;
+    if (loading) return <div className="text-slate-400 p-8 text-center">Loading data...</div>;
+    if (error) return (
+      <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6 text-center">
+        <p className="text-red-400 mb-3">{error}</p>
+        <button
+          onClick={() => { setError(null); setLoading(true); window.location.reload(); }}
+          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
 
     if (!isComparisonMode) {
       const location = selectedLocations[0];

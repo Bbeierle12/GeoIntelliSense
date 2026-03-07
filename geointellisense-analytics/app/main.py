@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import get_pool, close_pool
+from app.cache import get_redis, close_redis
 from app.routes.health import router as health_router
 from app.routes.chat import router as chat_router
 from app.routes.grounded_search import router as grounded_search_router
@@ -21,12 +22,17 @@ from app.routes.historical_aqi import router as historical_aqi_router
 from app.routes.historical_weather import router as historical_weather_router
 from app.routes.nws_forecast import router as nws_forecast_router
 from app.routes.maps_config import router as maps_config_router
+from app.routes.epa_aqi import router as epa_aqi_router
+from app.routes.earthquakes import router as earthquakes_router
+from app.routes.admin import router as admin_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
+    await get_redis()
     yield
+    await close_redis()
     await close_pool()
 
 
@@ -51,6 +57,9 @@ app.include_router(historical_aqi_router)
 app.include_router(historical_weather_router)
 app.include_router(nws_forecast_router)
 app.include_router(maps_config_router)
+app.include_router(epa_aqi_router)
+app.include_router(earthquakes_router)
+app.include_router(admin_router)
 
 
 if __name__ == "__main__":

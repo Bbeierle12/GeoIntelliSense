@@ -2,10 +2,14 @@ from datetime import date
 
 import polars as pl
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
+from app.cache import get_cached, set_cached, cache_headers
 from app.database import get_pool
 
 router = APIRouter()
+
+HIST_TTL = 300  # 5 minutes
 
 
 @router.get("/api/historical-aqi")
@@ -14,6 +18,12 @@ async def historical_aqi(
     start_date: date | None = Query(None),
     end_date: date | None = Query(None),
 ):
+    cache_params = {"loc": location_ids or "all", "s": str(start_date), "e": str(end_date)}
+
+    cached, hit = await get_cached("historical-aqi", cache_params)
+    if cached is not None:
+        return JSONResponse(content=cached, headers=cache_headers(hit, HIST_TTL))
+
     pool = await get_pool()
 
     query = """
@@ -51,9 +61,8 @@ async def historical_aqi(
     rows = await pool.fetch(query, *params)
 
     if not rows:
-        return []
+        return JSONResponse(content=[], headers=cache_headers(False, HIST_TTL))
 
-    # Build Polars DataFrame for aggregation
     df = pl.DataFrame({
         "time": [r["time"] for r in rows],
         "location_id": [str(r["location_id"]) for r in rows],
@@ -62,7 +71,6 @@ async def historical_aqi(
         "pm25": [r["pm25"] for r in rows],
     })
 
-    # Monthly aggregation
     aggregated = (
         df.with_columns(
             pl.col("time").dt.strftime("%b").alias("month"),
@@ -89,4 +97,5 @@ async def historical_aqi(
             "avgPm25": row["avgPm25"],
         })
 
-    return records
+    await set_cached("historical-aqi", cache_params, records, HIST_TTL)
+    return JSONResponse(content=records, headers=cache_headers(False, HIST_TTL))

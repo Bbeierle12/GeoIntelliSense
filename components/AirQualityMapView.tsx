@@ -384,6 +384,13 @@ const AirQualityMapView: React.FC = () => {
   
   return (
     <div className="h-[calc(100vh-150px)] min-h-[500px] flex flex-col">
+      {/* Connection error banner */}
+      {realtimeError && !isConnected && (
+        <div className="bg-amber-900/30 border border-amber-600/50 rounded-lg px-4 py-2 mb-3 flex items-center justify-between">
+          <span className="text-amber-300 text-sm">{realtimeError}</span>
+          <button onClick={reconnect} className="text-amber-200 hover:text-white text-sm underline ml-4">Reconnect</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">

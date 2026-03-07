@@ -9,6 +9,9 @@
 	handle /api/aqi-history {
 		reverse_proxy ingestion:3001
 	}
+	handle /api/earthquakes/cached* {
+		reverse_proxy ingestion:3001
+	}
 	handle /health {
 		reverse_proxy ingestion:3001
 	}

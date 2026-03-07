@@ -1,23 +1,29 @@
-from datetime import datetime
-
 import httpx
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
+from app.cache import get_cached, set_cached, cache_headers
 from app.database import get_pool
 
 router = APIRouter()
 
 NWS_BASE = "https://api.weather.gov"
 NWS_HEADERS = {"User-Agent": "(GeoIntelliSense, contact@geointellisense.dev)", "Accept": "application/geo+json"}
+NWS_TTL = 3600  # 1 hour
 
 
 @router.get("/api/forecast")
 async def forecast(
     location_ids: str | None = Query(None, description="Comma-separated location UUIDs"),
 ):
+    cache_key_params = location_ids or "all"
+
+    cached, hit = await get_cached("forecast", cache_key_params)
+    if cached is not None:
+        return JSONResponse(content=cached, headers=cache_headers(hit, NWS_TTL))
+
     pool = await get_pool()
 
-    # Fetch locations from DB
     if location_ids:
         ids = [uid.strip() for uid in location_ids.split(",")]
         rows = await pool.fetch(
@@ -55,17 +61,16 @@ async def forecast(
                         "conditions": p.get("shortForecast", ""),
                         "icon": p.get("icon", ""),
                     })
-            except Exception as e:
-                # If NWS fails for a location, skip it rather than failing the whole request
+            except Exception:
                 import traceback
                 traceback.print_exc()
                 continue
 
-    return records
+    await set_cached("forecast", cache_key_params, records, NWS_TTL)
+    return JSONResponse(content=records, headers=cache_headers(False, NWS_TTL))
 
 
 async def _fetch_nws_forecast(client: httpx.AsyncClient, lat: float, lng: float) -> list[dict]:
-    """Two-step NWS API: /points → /forecast."""
     points_resp = await client.get(f"{NWS_BASE}/points/{lat},{lng}")
     points_resp.raise_for_status()
     forecast_url = points_resp.json()["properties"]["forecast"]

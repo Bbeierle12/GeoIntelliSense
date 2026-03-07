@@ -3,10 +3,12 @@ mod broadcast;
 mod config;
 mod db;
 mod purpleair;
+mod redis_cache;
 mod routes;
+mod usgs;
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use broadcast::AppState;
 use config::Config;
@@ -28,6 +30,9 @@ async fn main() {
     let pool = db::connect(&cfg.database_url).await;
     tracing::info!("Connected to database");
 
+    let redis_conn = redis_cache::connect(&cfg.redis_url).await;
+    let redis = Arc::new(Mutex::new(redis_conn));
+
     let pa_client = cfg.purpleair_api_key.map(|key| {
         tracing::info!(
             interval_secs = cfg.purpleair_interval_secs,
@@ -41,11 +46,13 @@ async fn main() {
 
     let tx = broadcast::create();
     let cache = Arc::new(RwLock::new(None));
+    let quake_cache = Arc::new(RwLock::new(Vec::new()));
 
     broadcast::spawn_ticker(
         tx.clone(),
         pool.clone(),
         cache.clone(),
+        redis.clone(),
         pa_client,
         cfg.broadcast_interval_secs,
         cfg.purpleair_interval_secs,
@@ -55,7 +62,24 @@ async fn main() {
         "AQI broadcast started, persisting to sensor_readings"
     );
 
-    let state = AppState { tx, pool, cache };
+    broadcast::spawn_earthquake_poller(
+        pool.clone(),
+        quake_cache.clone(),
+        cfg.earthquake_interval_secs,
+    );
+    tracing::info!(
+        interval_secs = cfg.earthquake_interval_secs,
+        "USGS earthquake poller started"
+    );
+
+    let state = AppState {
+        tx,
+        pool,
+        cache,
+        quake_cache,
+        redis,
+        admin_token: cfg.admin_token,
+    };
 
     let app = routes::router(state)
         .layer(CorsLayer::permissive())

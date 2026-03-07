@@ -11,8 +11,17 @@ export interface AQIData {
     usAqi?: number;
 }
 
+interface SnapshotReading {
+    lat: number; lng: number;
+    aqi: number; pm25: number; pm10: number;
+    no2: number; so2: number; co: number; o3: number;
+}
+
 export class AirQualityService {
     private static instance: AirQualityService;
+    private cachedReadings: SnapshotReading[] | null = null;
+    private cacheTimestamp = 0;
+    private readonly CACHE_TTL_MS = 4000; // 4s — shorter than the 5s broadcast interval
 
     private constructor() { }
 
@@ -23,22 +32,28 @@ export class AirQualityService {
         return AirQualityService.instance;
     }
 
-    async getCurrentAQI(_lat: number, _lng: number): Promise<AQIData> {
-        try {
-            const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
-            if (!response.ok) throw new Error('AQI snapshot request failed');
+    private async getReadings(): Promise<SnapshotReading[]> {
+        const now = Date.now();
+        if (this.cachedReadings && (now - this.cacheTimestamp) < this.CACHE_TTL_MS) {
+            return this.cachedReadings;
+        }
 
-            const data = await response.json();
-            // Find the closest station to the requested coordinates
-            const readings = data.readings as Array<{
-                lat: number; lng: number;
-                aqi: number; pm25: number; pm10: number;
-                no2: number; so2: number; co: number; o3: number;
-            }>;
+        const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
+        if (!response.ok) throw new Error('AQI snapshot request failed');
+
+        const data = await response.json();
+        this.cachedReadings = data.readings as SnapshotReading[];
+        this.cacheTimestamp = now;
+        return this.cachedReadings;
+    }
+
+    async getCurrentAQI(lat: number, lng: number): Promise<AQIData> {
+        try {
+            const readings = await this.getReadings();
 
             const closest = readings.reduce((best, r) => {
-                const dist = Math.hypot(r.lat - _lat, r.lng - _lng);
-                const bestDist = Math.hypot(best.lat - _lat, best.lng - _lng);
+                const dist = Math.hypot(r.lat - lat, r.lng - lng);
+                const bestDist = Math.hypot(best.lat - lat, best.lng - lng);
                 return dist < bestDist ? r : best;
             }, readings[0]);
 
@@ -54,21 +69,8 @@ export class AirQualityService {
             };
         } catch (error) {
             console.error('Error fetching AQI from ingestion service:', error);
-            return this.getMockAQI();
+            throw error;
         }
-    }
-
-    private getMockAQI(): AQIData {
-        return {
-            aqi: 3,
-            usAqi: 120,
-            pm25: 45,
-            pm10: 60,
-            no2: 10,
-            so2: 5,
-            co: 200,
-            o3: 40
-        };
     }
 }
 

@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use futures::stream::Stream;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
@@ -15,21 +14,34 @@ static CLIENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub async fn handler(
     State(state): State<AppState>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let rx = state.tx.subscribe();
     let client_id = CLIENT_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     let active = Arc::new(());
 
     tracing::info!(client_id, "SSE client connected");
 
-    let connected_event = futures::stream::once(async move {
-        Ok(Event::default()
-            .event("connected")
-            .data(format!(r#"{{"clientId":{client_id}}}"#)))
-    });
+    // 1. Connected event
+    let connected_event = tokio_stream::once(Ok(Event::default()
+        .event("connected")
+        .data(format!(r#"{{"clientId":{client_id}}}"#))));
 
+    // 2. Initial earthquake snapshot (if any M3.0+ events exist)
+    let initial_quake: Option<Result<Event, Infallible>> = {
+        let quakes = state.quake_cache.read().await;
+        if quakes.is_empty() {
+            None
+        } else {
+            Some(Ok(Event::default()
+                .event("earthquake")
+                .data(serde_json::to_string(&*quakes).unwrap())))
+        }
+    };
+    let initial_quake_stream = tokio_stream::iter(initial_quake);
+
+    // 3. AQI update stream from broadcast channel
     let tracker = active.clone();
-    let data_stream = BroadcastStream::new(rx)
+    let aqi_stream = BroadcastStream::new(rx)
         .filter_map(move |msg: Result<_, _>| {
             let _keep = tracker.clone();
             match msg {
@@ -40,6 +52,7 @@ pub async fn handler(
             }
         });
 
+    // Disconnect tracker
     let active_for_drop = active;
     tokio::spawn(async move {
         loop {
@@ -51,7 +64,7 @@ pub async fn handler(
         }
     });
 
-    Sse::new(connected_event.chain(data_stream))
+    Sse::new(connected_event.chain(initial_quake_stream).chain(aqi_stream))
         .keep_alive(
             KeepAlive::new()
                 .interval(Duration::from_secs(30))
