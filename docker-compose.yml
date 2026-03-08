@@ -88,6 +88,7 @@ services:
       NASA_FIRMS_KEY: ${NASA_FIRMS_KEY:-}
       EPA_AQS_EMAIL: ${EPA_AQS_EMAIL:-}
       EPA_AQS_KEY: ${EPA_AQS_KEY:-}
+      CENSUS_API_KEY: ${CENSUS_API_KEY:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}

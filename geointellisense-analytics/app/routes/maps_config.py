@@ -28,5 +28,6 @@ async def maps_config():
             "wells": "/api/calgem/wells",
             "enviroscreen": "/api/enviroscreen/tracts",
             "waterStations": "/api/water/current",
+            "demographics": "/api/demographics/summary",
         },
     }

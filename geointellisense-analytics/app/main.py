@@ -33,6 +33,7 @@ from app.routes.water import router as water_router, start_water_polling
 from app.routes.fires import router as fires_router, start_fire_polling
 from app.routes.traffic import router as traffic_router
 from app.routes.cropscape import router as cropscape_router
+from app.routes.demographics import router as demographics_router
 from app.routes.admin import router as admin_router
 
 
@@ -79,6 +80,7 @@ app.include_router(water_router)
 app.include_router(fires_router)
 app.include_router(traffic_router)
 app.include_router(cropscape_router)
+app.include_router(demographics_router)
 app.include_router(admin_router)
 
 
