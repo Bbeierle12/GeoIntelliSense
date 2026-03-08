@@ -14,6 +14,24 @@ export default defineConfig(() => {
           '@': path.resolve(__dirname, '.'),
         }
       },
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              // Split Three.js + React Three Fiber into its own chunk (~800KB)
+              'three-vendor': ['three', '@react-three/fiber', '@react-three/drei'],
+              // Split Recharts into its own chunk (~300KB)
+              'recharts-vendor': ['recharts'],
+              // Split React core
+              'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            },
+          },
+        },
+        // Target modern browsers for smaller output
+        target: 'es2020',
+        // Reporting
+        chunkSizeWarningLimit: 500,
+      },
       test: {
         globals: true,
         environment: 'jsdom',

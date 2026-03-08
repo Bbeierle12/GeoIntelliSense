@@ -2,12 +2,20 @@
  * Generic data fetching hook with auto-refresh.
  * Polls at a configurable interval, tracks loading/error/staleness.
  * All API calls go through the Caddy gateway or direct service URLs.
+ *
+ * Error classification:
+ * - network: fetch failed entirely (server down, CORS, timeout)
+ * - disabled: 503 — source toggle is off
+ * - client: 4xx — bad request from frontend
+ * - server: 5xx — backend error
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
 const INGESTION_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
+
+export type ErrorKind = 'network' | 'disabled' | 'client' | 'server' | null;
 
 interface UseLiveDataOptions {
   refreshInterval?: number; // ms, 0 = no auto-refresh
@@ -18,6 +26,7 @@ interface UseLiveDataReturn<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
+  errorKind: ErrorKind;
   lastUpdated: Date | null;
   refetch: () => void;
 }
@@ -30,33 +39,46 @@ export function useLiveData<T>(
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<ErrorKind>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchData = useCallback(async () => {
     if (!enabled) return;
     try {
-      // Route to ingestion service for Rust endpoints
       const base = path.startsWith('/api/aqi-') || path === '/health'
         ? INGESTION_URL
         : GATEWAY_URL;
       const res = await fetch(`${base}${path}`);
+
       if (!res.ok) {
-        // 503 = source disabled, show that cleanly
+        const body = await res.json().catch(() => ({}));
+
         if (res.status === 503) {
-          const body = await res.json().catch(() => ({}));
           setError(body.error || 'Source disabled');
-          setLoading(false);
-          return;
+          setErrorKind('disabled');
+        } else if (res.status >= 400 && res.status < 500) {
+          setError(body.error || `Client error (${res.status})`);
+          setErrorKind('client');
+        } else {
+          setError(body.error || `Server error (${res.status})`);
+          setErrorKind('server');
         }
-        throw new Error(`HTTP ${res.status}`);
+        setLoading(false);
+        return;
       }
+
       const json = await res.json();
       setData(json);
       setError(null);
+      setErrorKind(null);
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Fetch failed');
+      // Network error — server unreachable, CORS, timeout
+      const msg = err instanceof Error ? err.message : 'Network error';
+      setError(msg);
+      setErrorKind('network');
+      // Keep stale data if we had it — graceful degradation
     } finally {
       setLoading(false);
     }
@@ -72,7 +94,7 @@ export function useLiveData<T>(
     }
   }, [fetchData, refreshInterval, enabled]);
 
-  return { data, loading, error, lastUpdated, refetch: fetchData };
+  return { data, loading, error, errorKind, lastUpdated, refetch: fetchData };
 }
 
 // ── Typed hooks for each data source ──────────────────

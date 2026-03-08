@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'r
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingScreen, DashboardSkeleton } from './components/LoadingStates';
+import { ToastProvider } from './components/Toast';
 import { SkipLinks, useKeyboardShortcuts, useAnnounce } from './utils/accessibility';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -124,6 +125,7 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <UserPreferencesProvider>
+        <ToastProvider>
         <Router>
           <Suspense fallback={<LoadingScreen message="Loading GeoIntelliSense..." />}>
             <Routes>
@@ -182,6 +184,7 @@ const App: React.FC = () => {
             </Routes>
           </Suspense>
         </Router>
+        </ToastProvider>
       </UserPreferencesProvider>
     </ErrorBoundary>
   );
