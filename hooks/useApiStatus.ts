@@ -6,8 +6,8 @@ interface ApiStatus {
     error: string | null;
 }
 
-const RUST_URL = 'http://localhost:3001';
-const PYTHON_URL = 'http://localhost:3002';
+const RUST_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
+const PYTHON_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
 
 export const useApiStatus = (): ApiStatus => {
     const [isAvailable, setIsAvailable] = useState(false);

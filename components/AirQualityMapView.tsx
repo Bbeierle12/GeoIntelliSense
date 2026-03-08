@@ -261,7 +261,8 @@ const AirQualityMapView: React.FC = () => {
   
   // Use real-time data if available, otherwise fall back to static
   const cityData = useRealtimeData && realtimeCities.length > 0 ? realtimeCities : staticCityData;
-  
+  const cityDataLen = cityData.length;
+
   // Convert to AQI data points for interpolation
   const aqiDataPoints: DataPoint[] = useMemo(() => {
     if (useRealtimeData && realtimeAqiDataPoints.length > 0) {
@@ -272,12 +273,12 @@ const AirQualityMapView: React.FC = () => {
       lng: city.lng,
       value: city.aqi,
     }));
-  }, [useRealtimeData, realtimeAqiDataPoints, cityData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useRealtimeData, realtimeAqiDataPoints.length, cityDataLen]);
   
   // Wind data (prefer real-time)
-  const windData = useRealtimeData && realtimeWindData.length > 0 ? realtimeWindData : useMemo(() => {
-    return generateWindData(new Date());
-  }, []);
+  const staticWindData = useMemo(() => generateWindData(new Date()), []);
+  const windData = useRealtimeData && realtimeWindData.length > 0 ? realtimeWindData : staticWindData;
   
   // Calculate metrics
   const metrics: MetricsData = useMemo(() => {
@@ -291,36 +292,37 @@ const AirQualityMapView: React.FC = () => {
         trend: realtimeStats.averageAQI > 100 ? 'worsening' : realtimeStats.averageAQI < 50 ? 'improving' : 'stable',
       };
     }
-    
-    if (cityData.length === 0) {
+
+    if (cityDataLen === 0) {
       return { averageAQI: 0, maxAQI: 0, minAQI: 0 };
     }
-    
+
     const aqiValues = cityData.map(c => c.aqi);
     const avgAqi = aqiValues.reduce((sum, v) => sum + v, 0) / aqiValues.length;
     const maxAqi = Math.max(...aqiValues);
     const minAqi = Math.min(...aqiValues);
-    
-    // Determine trend (simplified)
+
     const trend = avgAqi > 100 ? 'worsening' : avgAqi < 50 ? 'improving' : 'stable';
-    
+
     return {
       averageAQI: avgAqi,
       maxAQI: maxAqi,
       minAQI: minAqi,
       dominantPollutant: 'PM2.5',
-      affectedPopulation: 4200000, // San Joaquin Valley population
+      affectedPopulation: 4200000,
       trend: trend as 'improving' | 'worsening' | 'stable',
     };
-  }, [cityData]);
-  
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useRealtimeData, realtimeStats, cityDataLen]);
+
   // Stats for header cards
   const stats = useMemo(() => ({
     avgAqi: Math.round(metrics.averageAQI),
-    avgPm25: Math.round(cityData.reduce((sum, c) => sum + (c.pm25 || 0), 0) / cityData.length),
+    avgPm25: cityDataLen > 0 ? Math.round(cityData.reduce((sum, c) => sum + (c.pm25 || 0), 0) / cityDataLen) : 0,
     maxAqi: metrics.maxAQI,
     minAqi: metrics.minAQI,
-  }), [metrics, cityData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [metrics, cityDataLen]);
   
   // Handle layer toggle
   const handleLayerChange = useCallback((layer: keyof LayerSettings, enabled: boolean) => {

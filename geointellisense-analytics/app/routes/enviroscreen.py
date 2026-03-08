@@ -120,15 +120,24 @@ async def tract_detail(tract_id: str = Path(..., description="Census tract GEOID
 # ── Backfill ─────────────────────────────────────────
 
 @router.post("/api/enviroscreen/backfill")
-async def start_backfill():
+async def start_backfill(
+    counties: str | None = Query(None, description="Comma-separated county names (default: SJV counties). Use 'all' for all California."),
+):
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():
         return JSONResponse(status_code=409, content={"error": "Backfill in progress", "status": _backfill_status})
 
-    _backfill_status = {"state": "running", "tractsLoaded": 0, "tractsInserted": 0, "errors": []}
-    _backfill_task = asyncio.create_task(_run_backfill())
-    return {"message": "CalEnviroScreen backfill started", "status": _backfill_status}
+    if counties == "all":
+        county_set = None  # download_and_parse(None) returns all CA tracts
+    elif counties:
+        county_set = {c.strip() for c in counties.split(",")}
+    else:
+        county_set = SJV_COUNTIES
+
+    _backfill_status = {"state": "running", "tractsLoaded": 0, "tractsInserted": 0, "errors": [], "counties": counties or "SJV"}
+    _backfill_task = asyncio.create_task(_run_backfill(county_set))
+    return {"message": f"CalEnviroScreen backfill started for {counties or 'SJV'}", "status": _backfill_status}
 
 
 @router.get("/api/enviroscreen/backfill/status")
@@ -136,13 +145,13 @@ async def backfill_status():
     return _backfill_status
 
 
-async def _run_backfill() -> None:
+async def _run_backfill(county_set: set[str] | None = None) -> None:
     global _backfill_status
 
     pool = await get_pool()
 
     try:
-        gdf = await download_and_parse(SJV_COUNTIES)
+        gdf = await download_and_parse(county_set)
         records = gdf_to_records(gdf)
         _backfill_status["tractsLoaded"] = len(records)
 

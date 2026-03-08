@@ -53,27 +53,50 @@ async def _poll_loop():
 
 
 @router.get("/api/water/current")
-async def water_current():
-    cached, hit = await get_cached("water-current", "all")
+async def water_current(
+    site_ids: str | None = Query(None, description="Comma-separated USGS site IDs (defaults to SJV stations)"),
+):
+    custom_sites = None
+    if site_ids:
+        custom_sites = [s.strip() for s in site_ids.split(",") if s.strip()]
+
+    cache_key = site_ids or "all"
+    cached, hit = await get_cached("water-current", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, CURRENT_TTL))
 
     # Check DB for recent readings before hitting external API
     # (the poll loop may have data even if the cache expired)
     pool = await get_pool()
-    rows = await pool.fetch(
-        """
-        SELECT DISTINCT ON (site_no)
-            site_no, site_name, parameter, value, unit, time
-        FROM water_readings
-        WHERE time > now() - interval '2 hours'
-        ORDER BY site_no, time DESC
-        """
-    )
+    try:
+        if custom_sites:
+            rows = await pool.fetch(
+                """
+                SELECT DISTINCT ON (site_id)
+                    site_id, site_name, parameter, value, units AS unit, time
+                FROM water_readings
+                WHERE time > now() - interval '2 hours'
+                  AND site_id = ANY($1::text[])
+                ORDER BY site_id, time DESC
+                """,
+                custom_sites,
+            )
+        else:
+            rows = await pool.fetch(
+                """
+                SELECT DISTINCT ON (site_id)
+                    site_id, site_name, parameter, value, units AS unit, time
+                FROM water_readings
+                WHERE time > now() - interval '2 hours'
+                ORDER BY site_id, time DESC
+                """
+            )
+    except Exception:
+        rows = []
 
     if rows:
         result = _format_db_current(rows)
-        await set_cached("water-current", "all", result, CURRENT_TTL)
+        await set_cached("water-current", cache_key, result, CURRENT_TTL)
         return JSONResponse(content=result, headers=cache_headers(False, CURRENT_TTL))
 
     # No DB data and no cache — fetch from USGS only if source is enabled
@@ -82,13 +105,13 @@ async def water_current():
         return JSONResponse(status_code=503, content={"error": "USGS Water source is disabled", "details": "Enable via POST /api/admin/sources/usgs_water/enable"})
 
     try:
-        readings = await fetch_current()
+        readings = await fetch_current(sites=custom_sites)
 
         if readings:
             await _persist_readings(pool, readings)
 
         result = _format_current(readings)
-        await set_cached("water-current", "all", result, CURRENT_TTL)
+        await set_cached("water-current", cache_key, result, CURRENT_TTL)
         return JSONResponse(content=result, headers=cache_headers(False, CURRENT_TTL))
     except Exception as e:
         traceback.print_exc()
@@ -148,7 +171,7 @@ def _format_db_current(rows) -> dict:
     """Format DB rows as current water readings (avoids external API call)."""
     sites: dict = {}
     for r in rows:
-        site_id = r["site_no"]
+        site_id = r["site_id"]
         if site_id not in sites:
             sites[site_id] = {
                 "siteId": site_id,

@@ -13,6 +13,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const AirQualityMapView = lazy(() => import('./components/AirQualityMapView'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
 const DataExplorer = lazy(() => import('./components/DataExplorer'));
+const MapView = lazy(() => import('./components/MapView'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
 
 // Loading fallback for lazy-loaded routes
@@ -166,6 +167,16 @@ const App: React.FC = () => {
                   <Layout>
                     <Suspense fallback={<RouteLoadingFallback />}>
                       <DataExplorer />
+                    </Suspense>
+                  </Layout>
+                }
+              />
+              <Route
+                path="/maps"
+                element={
+                  <Layout>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <MapView />
                     </Suspense>
                   </Layout>
                 }

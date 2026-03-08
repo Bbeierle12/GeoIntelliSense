@@ -68,7 +68,7 @@ export interface UseRealtimeAQIReturn {
 // CONSTANTS
 // =============================================================================
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
 const DEFAULT_RECONNECT_INTERVAL = 5000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
 

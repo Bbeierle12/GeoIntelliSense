@@ -5,19 +5,26 @@ import { useLiveData } from '../../../hooks/useLiveData';
 import { AccessibleChartWrapper } from '../../AccessibleChartWrapper';
 
 interface HistoryPoint {
-  time: string;
+  timestamp: string;
   aqi: number;
   pm25: number;
 }
 
+interface HistoryResponse {
+  stationId: string;
+  history: HistoryPoint[];
+  count: number;
+}
+
 export const AqiTrendWidget: React.FC = () => {
-  const { data, loading, error, lastUpdated, refetch } = useLiveData<HistoryPoint[]>(
+  const { data, loading, error, lastUpdated, refetch } = useLiveData<HistoryResponse>(
     '/api/aqi-history?station_id=AQ-001&hours=24',
     { refreshInterval: 120_000 },
   );
 
-  const chartData = (data || []).map(d => ({
-    time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  const history = data?.history || [];
+  const chartData = history.map(d => ({
+    time: new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     aqi: d.aqi,
     pm25: d.pm25,
   }));

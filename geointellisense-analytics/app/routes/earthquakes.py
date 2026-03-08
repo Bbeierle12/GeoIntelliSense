@@ -16,11 +16,16 @@ BAKERSFIELD_LNG = -119.0187
 async def recent_earthquakes(
     days: int = Query(30, ge=1, le=365),
     min_magnitude: float = Query(0.5),
-    max_distance_km: float | None = Query(None, description="Max distance from Bakersfield in km"),
+    max_distance_km: float | None = Query(None, description="Max distance from reference point in km"),
+    lat: float = Query(BAKERSFIELD_LAT, description="Reference point latitude"),
+    lon: float = Query(BAKERSFIELD_LNG, description="Reference point longitude"),
 ):
     pool = await get_pool()
 
     cutoff = date.today() - timedelta(days=days)
+
+    ref_lng = lon
+    ref_lat = lat
 
     rows = await pool.fetch(
         """
@@ -48,8 +53,8 @@ async def recent_earthquakes(
         """,
         cutoff,
         min_magnitude,
-        BAKERSFIELD_LNG,
-        BAKERSFIELD_LAT,
+        ref_lng,
+        ref_lat,
     )
 
     events = []
@@ -71,12 +76,13 @@ async def recent_earthquakes(
             "alert": r["alert"],
             "status": r["status"],
             "source": r["source"],
-            "distanceFromBakersfieldKm": round(dist, 1),
+            "distanceKm": round(dist, 1),
         })
 
     return {
         "count": len(events),
         "days": days,
         "minMagnitude": min_magnitude,
+        "referencePoint": {"lat": ref_lat, "lon": ref_lng},
         "events": events,
     }

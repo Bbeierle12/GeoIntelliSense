@@ -17,7 +17,7 @@ export const WeatherWidget: React.FC = () => {
     ? Math.round(readings.reduce((s, r) => s + (r.humidity || 0), 0) / readings.length)
     : null;
   const avgWind = readings.length
-    ? Math.round(readings.reduce((s, r) => s + (r.wind_speed || 0), 0) / readings.length * 10) / 10
+    ? Math.round(readings.reduce((s, r) => s + (r.windSpeed || 0), 0) / readings.length * 10) / 10
     : null;
 
   // Take first few distinct forecast periods

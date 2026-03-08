@@ -3,7 +3,9 @@ import { weatherService } from './WeatherService';
 import { airQualityService } from './AirQualityService';
 import { dashboardData, cityLocations } from '../data/dashboardData'; // Keep for fallback
 
-const ANALYTICS_URL = 'http://localhost:3002/api';
+const ANALYTICS_URL = import.meta.env.VITE_GATEWAY_URL
+  ? `${import.meta.env.VITE_GATEWAY_URL}/api`
+  : 'http://localhost:8080/api';
 
 export interface AQIRecord {
   id: string;

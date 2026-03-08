@@ -1,4 +1,6 @@
-const INGESTION_URL = 'http://localhost:3001/api';
+const INGESTION_URL = import.meta.env.VITE_INGESTION_URL
+  ? `${import.meta.env.VITE_INGESTION_URL}/api`
+  : 'http://localhost:3001/api';
 
 export interface AQIData {
     aqi: number;

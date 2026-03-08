@@ -14,6 +14,7 @@ from app.clients.dem import (
     get_available_tiles,
     download_tile,
     download_all_tiles,
+    add_tile,
     TILES,
     BAKERSFIELD_LAT,
     BAKERSFIELD_LNG,
@@ -241,6 +242,21 @@ async def start_download(
     _download_status = {"state": "running", "tile": tile_id or "all", "downloaded": [], "errors": []}
     _download_task = asyncio.create_task(_run_download(tile_id))
     return {"message": f"DEM download started: {tile_id or 'all tiles'}", "status": _download_status}
+
+
+@router.post("/api/elevation/tiles/add")
+async def add_dem_tile(
+    tile_id: str = Query(..., description="Tile ID e.g. n41w112 (north_lat + west_lon)"),
+    name: str = Query("Custom tile", description="Human-readable name"),
+    north: float = Query(...), south: float = Query(...),
+    east: float = Query(...), west: float = Query(...),
+):
+    """Register a new USGS 3DEP tile for any CONUS location, then download it."""
+    if tile_id in TILES:
+        return {"message": f"Tile {tile_id} already registered", "tile": TILES[tile_id]}
+
+    add_tile(tile_id, name, {"north": north, "south": south, "east": east, "west": west})
+    return {"message": f"Tile {tile_id} registered. POST /api/elevation/download?tile_id={tile_id} to fetch it.", "tile": TILES[tile_id]}
 
 
 @router.get("/api/elevation/download/status")

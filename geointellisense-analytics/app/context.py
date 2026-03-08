@@ -393,12 +393,12 @@ async def _get_water_context(pool) -> dict[str, Any]:
     try:
         rows = await pool.fetch(
             """
-            SELECT DISTINCT ON (site_no)
-                site_no, site_name, value, unit, time
+            SELECT DISTINCT ON (site_id)
+                site_id, site_name, value, unit, time
             FROM water_readings
             WHERE time > now() - interval '2 hours'
               AND parameter = 'discharge'
-            ORDER BY site_no, time DESC
+            ORDER BY site_id, time DESC
             """
         )
 
@@ -413,7 +413,7 @@ async def _get_water_context(pool) -> dict[str, Any]:
                     status = "high"
 
             stations.append({
-                "siteNo": r["site_no"],
+                "siteNo": r["site_id"],
                 "name": r["site_name"],
                 "value": round(val, 1) if val else None,
                 "unit": r["unit"] or "cfs",

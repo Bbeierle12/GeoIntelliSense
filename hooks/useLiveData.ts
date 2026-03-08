@@ -99,21 +99,28 @@ export function useLiveData<T>(
 
 // ── Typed hooks for each data source ──────────────────
 
+export interface AqiReading {
+  stationId: string;
+  stationName: string;
+  lat: number;
+  lng: number;
+  county: string;
+  aqi: number;
+  pm25: number;
+  pm10: number;
+  o3: number;
+  temperature: number;
+  humidity: number;
+  windSpeed: number;
+  windDirection: number;
+  category: string;
+  source: string;
+  timestamp: string;
+}
+
 export interface AqiSnapshot {
-  readings: Array<{
-    station_id: number;
-    station_name: string;
-    aqi: number;
-    pm25: number;
-    pm10: number;
-    o3: number;
-    temperature: number;
-    humidity: number;
-    wind_speed: number;
-    category: string;
-    source: string;
-  }>;
-  station_count: number;
+  readings: AqiReading[];
+  stationCount: number;
   timestamp: string;
 }
 
@@ -181,8 +188,10 @@ export interface EarthquakeData {
     time: string;
     magnitude: number;
     depthKm: number;
+    lat: number;
+    lng: number;
     place: string;
-    distanceFromBakersfieldKm: number;
+    distanceKm: number;
   }>;
 }
 

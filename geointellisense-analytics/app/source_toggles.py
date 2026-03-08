@@ -20,14 +20,26 @@ TOGGLE_PREFIX = "geointelli:source-toggle"
 
 # All controllable data sources and their descriptions
 SOURCES = {
+    # ── Real-time polling (background loops) ──
     "purpleair": "PurpleAir live AQI sensors (Rust ingestion service)",
-    "airnow": "AirNow EPA monitor data",
-    "nasa_firms": "NASA FIRMS fire detections",
-    "usgs_water": "USGS Water Services",
-    "nws_forecast": "NWS weather forecast",
-    "inversion": "Temperature inversion detection (NWS sounding)",
     "usgs_earthquakes": "USGS earthquake data (Rust ingestion service)",
+    "nasa_firms": "NASA FIRMS fire detections (30-min poll)",
+    "usgs_water": "USGS Water Services (15-min poll)",
+    "inversion": "Temperature inversion detection via NWS sounding (30-min poll)",
+    # ── On-demand API calls ──
+    "airnow": "AirNow EPA monitor data",
+    "nws_forecast": "NWS weather forecast",
+    "noaa_cdo": "NOAA Climate Data Online (historical weather)",
+    "epa_aqs": "EPA Air Quality System (historical AQI)",
+    "census": "U.S. Census Bureau ACS demographics",
+    "calgem": "CalGEM WellSTAR oil/gas well data",
+    "calenviroscreen": "CalEnviroScreen 4.0 environmental justice data",
+    "cropscape": "USDA CropScape agricultural land cover",
+    "caltrans": "Caltrans traffic AADT volumes",
     "wqp": "Water Quality Portal (groundwater chemistry)",
+    "landsat": "Landsat imagery via Planetary Computer STAC",
+    "sentinel": "Sentinel-2 satellite tiles via EOX",
+    "dem": "USGS 3DEP elevation data",
 }
 
 

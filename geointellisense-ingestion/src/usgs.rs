@@ -2,13 +2,33 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-// SJV bounding box (same as PurpleAir, slightly wider for tectonic context)
-const MIN_LAT: f64 = 34.5;
-const MAX_LAT: f64 = 38.5;
-const MIN_LNG: f64 = -122.0;
-const MAX_LNG: f64 = -118.0;
+// SJV bounding box defaults (same as PurpleAir, slightly wider for tectonic context)
+const DEFAULT_MIN_LAT: f64 = 34.5;
+const DEFAULT_MAX_LAT: f64 = 38.5;
+const DEFAULT_MIN_LNG: f64 = -122.0;
+const DEFAULT_MAX_LNG: f64 = -118.0;
 
 const USGS_URL: &str = "https://earthquake.usgs.gov/fdsnws/event/1/query";
+
+/// Configurable bounding box for earthquake queries.
+#[derive(Debug, Clone)]
+pub struct BBox {
+    pub min_lat: f64,
+    pub max_lat: f64,
+    pub min_lng: f64,
+    pub max_lng: f64,
+}
+
+impl Default for BBox {
+    fn default() -> Self {
+        Self {
+            min_lat: DEFAULT_MIN_LAT,
+            max_lat: DEFAULT_MAX_LAT,
+            min_lng: DEFAULT_MIN_LNG,
+            max_lng: DEFAULT_MAX_LNG,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,11 +76,17 @@ struct UsgsGeometry {
     coordinates: Vec<f64>, // [lng, lat, depth]
 }
 
+/// Fetch and persist earthquakes using the default SJV bounding box.
 pub async fn fetch_and_persist(pool: &PgPool) -> Vec<EarthquakeEvent> {
-    match fetch_recent().await {
+    fetch_and_persist_bbox(pool, &BBox::default()).await
+}
+
+/// Fetch and persist earthquakes using a custom bounding box.
+pub async fn fetch_and_persist_bbox(pool: &PgPool, bbox: &BBox) -> Vec<EarthquakeEvent> {
+    match fetch_recent(bbox).await {
         Ok(events) => {
             if events.is_empty() {
-                tracing::debug!("USGS: no earthquakes in SJV region");
+                tracing::debug!("USGS: no earthquakes in bbox region");
                 return events;
             }
             tracing::info!("USGS: {} earthquakes fetched", events.len());
@@ -74,7 +100,7 @@ pub async fn fetch_and_persist(pool: &PgPool) -> Vec<EarthquakeEvent> {
     }
 }
 
-async fn fetch_recent() -> Result<Vec<EarthquakeEvent>, Box<dyn std::error::Error + Send + Sync>> {
+async fn fetch_recent(bbox: &BBox) -> Result<Vec<EarthquakeEvent>, Box<dyn std::error::Error + Send + Sync>> {
     let now = Utc::now();
     let start = now - chrono::Duration::days(30);
 
@@ -85,10 +111,10 @@ async fn fetch_recent() -> Result<Vec<EarthquakeEvent>, Box<dyn std::error::Erro
             ("format", "geojson"),
             ("starttime", &start.format("%Y-%m-%d").to_string()),
             ("endtime", &now.format("%Y-%m-%d").to_string()),
-            ("minlatitude", &MIN_LAT.to_string()),
-            ("maxlatitude", &MAX_LAT.to_string()),
-            ("minlongitude", &MIN_LNG.to_string()),
-            ("maxlongitude", &MAX_LNG.to_string()),
+            ("minlatitude", &bbox.min_lat.to_string()),
+            ("maxlatitude", &bbox.max_lat.to_string()),
+            ("minlongitude", &bbox.min_lng.to_string()),
+            ("maxlongitude", &bbox.max_lng.to_string()),
             ("minmagnitude", "0.5"),
             ("orderby", "time"),
         ])

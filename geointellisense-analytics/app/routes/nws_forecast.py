@@ -15,7 +15,13 @@ NWS_TTL = 3600  # 1 hour
 @router.get("/api/forecast")
 async def forecast(
     location_ids: str | None = Query(None, description="Comma-separated location UUIDs"),
+    lat: float | None = Query(None, description="Latitude for a single ad-hoc point forecast"),
+    lon: float | None = Query(None, description="Longitude for a single ad-hoc point forecast"),
 ):
+    # Ad-hoc single-point mode when lat/lon are provided
+    if lat is not None and lon is not None:
+        return await _adhoc_point_forecast(lat, lon)
+
     cache_key_params = location_ids or "all"
 
     cached, hit = await get_cached("forecast", cache_key_params)
@@ -82,6 +88,47 @@ async def forecast(
 
     await set_cached("forecast", cache_key_params, records, NWS_TTL)
     return JSONResponse(content=records, headers=cache_headers(False, NWS_TTL))
+
+
+async def _adhoc_point_forecast(lat: float, lon: float):
+    """Fetch a forecast for an arbitrary lat/lon point (not in the DB)."""
+    cache_key = f"adhoc_{round(lat, 4)}_{round(lon, 4)}"
+    cached, hit = await get_cached("forecast", cache_key)
+    if cached is not None:
+        return JSONResponse(content=cached, headers=cache_headers(hit, NWS_TTL))
+
+    from app.source_toggles import is_enabled
+    if not await is_enabled("nws_forecast"):
+        return JSONResponse(status_code=503, content={"error": "NWS forecast source is disabled", "details": "Enable via POST /api/admin/sources/nws_forecast/enable"})
+
+    try:
+        async with httpx.AsyncClient(headers=NWS_HEADERS, timeout=15.0) as client:
+            periods = await _fetch_nws_forecast(client, round(lat, 4), round(lon, 4))
+            records = []
+            for p in periods:
+                records.append({
+                    "id": f"forecast_adhoc_{round(lat, 4)}_{round(lon, 4)}_{p['number']}",
+                    "locationId": None,
+                    "locationName": f"({round(lat, 4)}, {round(lon, 4)})",
+                    "date": p["startTime"],
+                    "tempHigh": p["temperature"] if p["isDaytime"] else None,
+                    "tempLow": p["temperature"] if not p["isDaytime"] else None,
+                    "humidity": p.get("relativeHumidity", {}).get("value") if p.get("relativeHumidity") else None,
+                    "precipProbability": (
+                        p.get("probabilityOfPrecipitation", {}).get("value", 0)
+                        if p.get("probabilityOfPrecipitation") else 0
+                    ),
+                    "windSpeed": p.get("windSpeed", ""),
+                    "uvIndex": 0,
+                    "conditions": p.get("shortForecast", ""),
+                    "icon": p.get("icon", ""),
+                })
+        await set_cached("forecast", cache_key, records, NWS_TTL)
+        return JSONResponse(content=records, headers=cache_headers(False, NWS_TTL))
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=502, content={"error": "NWS forecast request failed"})
 
 
 async def _fetch_nws_forecast(client: httpx.AsyncClient, lat: float, lng: float) -> list[dict]:

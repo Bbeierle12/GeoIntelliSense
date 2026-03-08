@@ -62,6 +62,37 @@ BAKERSFIELD_LNG = -119.0187
 _open_datasets: dict[str, Any] = {}
 
 
+def add_tile(tile_id: str, name: str, bounds: dict[str, float]) -> None:
+    """Register a new DEM tile for any CONUS location.
+
+    The USGS 3DEP 1/3 arc-second tiles follow a naming convention:
+      tile_id: "n{north_lat}w{abs_west_lon}" e.g. "n41w112" for Salt Lake City area
+      URL auto-generated from tile_id.
+      bounds: {"north": N, "south": S, "east": E, "west": W}
+
+    Usage: add_tile("n41w112", "Salt Lake City", {"north": 41, "south": 40, "east": -111, "west": -112})
+    Then call download_tile("n41w112") to fetch it.
+    """
+    url = f"https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/{tile_id}/USGS_13_{tile_id}.tif"
+    TILES[tile_id] = {"name": name, "url": url, "bounds": bounds}
+
+
+def add_tile(tile_id: str, name: str, url: str, bounds: dict[str, float]) -> None:
+    """Register an additional DEM tile at runtime.
+
+    Args:
+        tile_id: Unique identifier for the tile (e.g. "n37w122").
+        name: Human-readable name (e.g. "San Francisco Bay Area").
+        url: Download URL for the GeoTIFF.
+        bounds: Dict with keys north, south, east, west (EPSG:4326).
+    """
+    for key in ("north", "south", "east", "west"):
+        if key not in bounds:
+            raise ValueError(f"bounds must include '{key}'")
+    TILES[tile_id] = {"name": name, "url": url, "bounds": bounds}
+    logger.info("Registered DEM tile %s (%s)", tile_id, name)
+
+
 def _tile_for_point(lat: float, lon: float) -> str | None:
     """Find which DEM tile covers a given lat/lon."""
     for tile_id, info in TILES.items():

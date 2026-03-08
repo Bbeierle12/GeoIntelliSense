@@ -55,12 +55,12 @@ export const AqiGaugeWidget: React.FC = () => {
             const rs = getAqiStyle(r.aqi);
             return (
               <div
-                key={r.station_name}
+                key={r.stationName}
                 className="flex items-center justify-between text-xs"
                 role="listitem"
-                aria-label={`${r.station_name}: AQI ${r.aqi}, ${rs.label}`}
+                aria-label={`${r.stationName}: AQI ${r.aqi}, ${rs.label}`}
               >
-                <span className="text-slate-400 truncate mr-2" aria-hidden="true">{r.station_name}</span>
+                <span className="text-slate-400 truncate mr-2" aria-hidden="true">{r.stationName}</span>
                 <div className="flex items-center gap-1.5">
                   <span className={`font-semibold ${rs.text}`} aria-hidden="true">{r.aqi}</span>
                   <span className="text-slate-600 text-[10px]" aria-hidden="true">

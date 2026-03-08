@@ -4,6 +4,7 @@ import { DashboardIcon } from './icons/DashboardIcon';
 import { AirIcon } from './icons/AirIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
 import { TrendingUpIcon } from './icons/TrendingUpIcon';
+import { MapIcon } from './icons/MapIcon';
 import { SettingsIcon } from './icons/SettingsIcon';
 
 const Sidebar: React.FC = () => {
@@ -23,6 +24,14 @@ const Sidebar: React.FC = () => {
       icon: AirIcon,
       shortcut: 'Alt+M',
       description: 'Interactive 3D air quality visualization'
+    },
+    {
+      id: 'maps',
+      path: '/maps',
+      label: 'Google Maps',
+      icon: MapIcon,
+      shortcut: 'Alt+G',
+      description: 'Google Maps with data overlays'
     },
     {
       id: 'explore',

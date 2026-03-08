@@ -1,7 +1,9 @@
 
 import type { GroundingChunk } from '../types';
 
-const API_BASE_URL = 'http://localhost:3002/api';
+const API_BASE_URL = import.meta.env.VITE_GATEWAY_URL
+  ? `${import.meta.env.VITE_GATEWAY_URL}/api`
+  : 'http://localhost:8080/api';
 
 export const getChatResponse = async (message: string): Promise<string> => {
     try {

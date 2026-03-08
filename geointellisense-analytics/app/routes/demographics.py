@@ -52,9 +52,10 @@ async def tract_demographics(tract_id: str = Path(..., description="Census tract
 
 @router.get("/api/demographics/summary")
 async def demographics_summary(
+    state: str = Query(KERN_STATE, description="State FIPS (e.g. 06 for California)"),
     county: str = Query(KERN_COUNTY, description="County FIPS (e.g. 029 for Kern)"),
 ):
-    cache_key = f"summary-{county}"
+    cache_key = f"summary-{state}-{county}"
     cached, hit = await get_cached("demographics-summary", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, DEMO_TTL))
@@ -89,7 +90,7 @@ async def demographics_summary(
         FROM demographics
         WHERE geoid LIKE $1
         """,
-        f"{KERN_STATE}{county}%",
+        f"{state}{county}%",
     )
 
     if not agg or agg["tract_count"] == 0:
@@ -147,6 +148,7 @@ async def demographics_summary(
 
 @router.post("/api/demographics/backfill")
 async def start_backfill(
+    state: str = Query(KERN_STATE, description="State FIPS (e.g. 06 for California)"),
     county: str | None = Query(None, description="County FIPS. Omit for all SJV counties."),
     year: int = Query(2022, description="ACS 5-year dataset year"),
 ):
@@ -156,7 +158,7 @@ async def start_backfill(
         return JSONResponse(status_code=409, content={"error": "Backfill in progress", "status": _backfill_status})
 
     _backfill_status = {"state": "running", "tractsFetched": 0, "tractsInserted": 0, "errors": [], "county": county or "all-sjv", "year": year}
-    _backfill_task = asyncio.create_task(_run_backfill(county, year))
+    _backfill_task = asyncio.create_task(_run_backfill(state, county, year))
     return {"message": "Demographics backfill started", "status": _backfill_status}
 
 
@@ -165,7 +167,7 @@ async def backfill_status():
     return _backfill_status
 
 
-async def _run_backfill(county: str | None, year: int) -> None:
+async def _run_backfill(state: str, county: str | None, year: int) -> None:
     global _backfill_status
 
     pool = await get_pool()
@@ -173,7 +175,7 @@ async def _run_backfill(county: str | None, year: int) -> None:
 
     try:
         if county:
-            tracts = await fetch_tract_demographics(api_key, KERN_STATE, county, year)
+            tracts = await fetch_tract_demographics(api_key, state, county, year)
         else:
             tracts = await fetch_sjv_demographics(api_key, year)
 

@@ -15,6 +15,7 @@ from app.clients.wqp import (
     WQSample,
     PARAMETERS,
     MCL_LOOKUP,
+    KERN_COUNTY_FIPS,
 )
 from app.database import get_pool
 
@@ -311,6 +312,7 @@ async def oil_well_proximity(
 
 @router.post("/api/water-quality/backfill")
 async def start_backfill(
+    county_fips: str = Query(KERN_COUNTY_FIPS, description="County FIPS code (e.g. US:06:029 for Kern)"),
     start_date: str = Query("01-01-2015", description="Start date (MM-DD-YYYY)"),
 ):
     """Fetch water quality data from WQP for Kern County wells.
@@ -326,8 +328,8 @@ async def start_backfill(
     if not await is_enabled("wqp"):
         return JSONResponse(status_code=503, content={"error": "WQP source is disabled", "details": "Enable via POST /api/admin/sources/wqp/enable"})
 
-    _backfill_status = {"state": "running", "samplesFetched": 0, "samplesInserted": 0, "errors": [], "startDate": start_date}
-    _backfill_task = asyncio.create_task(_run_backfill(start_date))
+    _backfill_status = {"state": "running", "samplesFetched": 0, "samplesInserted": 0, "errors": [], "countyFips": county_fips, "startDate": start_date}
+    _backfill_task = asyncio.create_task(_run_backfill(county_fips, start_date))
     return {"message": "Water quality backfill started", "status": _backfill_status}
 
 
@@ -336,13 +338,13 @@ async def backfill_status():
     return _backfill_status
 
 
-async def _run_backfill(start_date: str) -> None:
+async def _run_backfill(county_fips: str, start_date: str) -> None:
     global _backfill_status
 
     pool = await get_pool()
 
     try:
-        samples = await fetch_key_contaminants(start_date=start_date)
+        samples = await fetch_key_contaminants(county_fips=county_fips, start_date=start_date)
         _backfill_status["samplesFetched"] = len(samples)
 
         inserted = await _persist_samples(pool, samples)

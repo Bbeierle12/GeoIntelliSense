@@ -199,6 +199,160 @@ const Slider: React.FC<SliderProps> = ({
   </div>
 );
 
+// Data Source Toggles Component
+const DataSourceToggles: React.FC = () => {
+  const [sources, setSources] = useState<Record<string, { enabled: boolean; description: string }>>({});
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const gwUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
+  const adminToken = 'geointelli-admin-dev';
+
+  const fetchSources = async () => {
+    try {
+      const res = await fetch(`${gwUrl}/api/admin/sources`);
+      if (res.ok) {
+        const data = await res.json();
+        setSources(data.sources || {});
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchSources(); }, []);
+
+  const toggleSource = async (source: string, enable: boolean) => {
+    setToggling(source);
+    try {
+      const action = enable ? 'enable' : 'disable';
+      await fetch(`${gwUrl}/api/admin/sources/${source}/${action}`, {
+        method: 'POST',
+        headers: { 'X-Admin-Token': adminToken },
+      });
+      setSources(prev => ({
+        ...prev,
+        [source]: { ...prev[source], enabled: enable },
+      }));
+    } catch { /* ignore */ }
+    setToggling(null);
+  };
+
+  const allEnabled = Object.values(sources).every(s => s.enabled);
+
+  const toggleAll = async (enable: boolean) => {
+    setToggling('all');
+    try {
+      const action = enable ? 'enable-all' : 'disable-all';
+      await fetch(`${gwUrl}/api/admin/sources/${action}`, {
+        method: 'POST',
+        headers: { 'X-Admin-Token': adminToken },
+      });
+      setSources(prev => {
+        const updated = { ...prev };
+        for (const key of Object.keys(updated)) {
+          updated[key] = { ...updated[key], enabled: enable };
+        }
+        return updated;
+      });
+    } catch { /* ignore */ }
+    setToggling(null);
+  };
+
+  if (loading) {
+    return <div className="text-sm text-text-muted animate-pulse">Loading sources...</div>;
+  }
+
+  const SOURCE_LABELS: Record<string, string> = {
+    // Real-time polling
+    purpleair: 'PurpleAir (Live AQI)',
+    usgs_earthquakes: 'USGS Earthquakes',
+    nasa_firms: 'NASA FIRMS (Fires)',
+    usgs_water: 'USGS Water Levels',
+    inversion: 'Inversion Detection',
+    // On-demand
+    airnow: 'AirNow (EPA Monitors)',
+    nws_forecast: 'NWS Weather Forecast',
+    noaa_cdo: 'NOAA CDO (Historical Weather)',
+    epa_aqs: 'EPA AQS (Historical AQI)',
+    census: 'U.S. Census Demographics',
+    calgem: 'CalGEM (Oil/Gas Wells)',
+    calenviroscreen: 'CalEnviroScreen (Env. Justice)',
+    cropscape: 'CropScape (Agriculture)',
+    caltrans: 'Caltrans (Traffic)',
+    wqp: 'Water Quality Portal',
+    landsat: 'Landsat Imagery',
+    sentinel: 'Sentinel-2 Tiles',
+    dem: 'USGS 3DEP Elevation',
+  };
+
+  const SOURCE_COST: Record<string, string> = {
+    purpleair: 'API key (rate-limited)',
+    airnow: 'API key',
+    nasa_firms: 'API key',
+    noaa_cdo: 'API key',
+    epa_aqs: 'API key (not configured)',
+    usgs_water: 'Free',
+    nws_forecast: 'Free',
+    inversion: 'Free',
+    usgs_earthquakes: 'Free',
+    census: 'Free (optional key)',
+    calgem: 'Free',
+    calenviroscreen: 'Free',
+    cropscape: 'Free',
+    caltrans: 'Free',
+    wqp: 'Free',
+    landsat: 'Free',
+    sentinel: 'Free',
+    dem: 'Free',
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={() => toggleAll(!allEnabled)}
+          disabled={toggling !== null}
+          className={`
+            px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+            ${allEnabled
+              ? 'bg-red-600/20 text-red-400 border border-red-600/50 hover:bg-red-600/30'
+              : 'bg-green-600/20 text-green-400 border border-green-600/50 hover:bg-green-600/30'
+            }
+          `}
+        >
+          {allEnabled ? 'Disable All' : 'Enable All'}
+        </button>
+      </div>
+      {Object.entries(sources).map(([key, source]) => (
+        <div key={key} className="flex items-center justify-between py-2 border-b border-border-color last:border-0">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-text-primary">
+                {SOURCE_LABELS[key] || key}
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                SOURCE_COST[key] === 'Free'
+                  ? 'bg-green-900/30 text-green-400'
+                  : 'bg-yellow-900/30 text-yellow-400'
+              }`}>
+                {SOURCE_COST[key] || ''}
+              </span>
+            </div>
+            <p className="text-xs text-text-muted truncate">{source.description}</p>
+          </div>
+          <ToggleSwitch
+            id={`source-${key}`}
+            checked={source.enabled}
+            onChange={(checked) => toggleSource(key, checked)}
+            label={`${source.enabled ? 'Disable' : 'Enable'} ${SOURCE_LABELS[key] || key}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // API Status Component
 const ApiStatusIndicator: React.FC = () => {
   const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
@@ -207,7 +361,8 @@ const ApiStatusIndicator: React.FC = () => {
   const checkStatus = async () => {
     setStatus('checking');
     try {
-      const response = await fetch('http://localhost:3001/health', {
+      const rustUrl = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
+      const response = await fetch(`${rustUrl}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
@@ -723,14 +878,23 @@ const SettingsView: React.FC = () => {
         </SettingRow>
       </SettingsSection>
 
+      {/* Data Sources Section */}
+      <SettingsSection
+        title="Data Sources"
+        description="Enable or disable external API data feeds. All sources are OFF by default to conserve API quota."
+        icon={<GaugeIcon className="w-5 h-5" />}
+      >
+        <DataSourceToggles />
+      </SettingsSection>
+
       {/* API & Connection Section */}
-      <SettingsSection 
-        title="API & Connection" 
+      <SettingsSection
+        title="API & Connection"
         description="Backend server status"
         icon={<KeyIcon className="w-5 h-5" />}
       >
-        <SettingRow 
-          label="Backend Status" 
+        <SettingRow
+          label="Backend Status"
           description="Connection to GeoIntelliSense API server"
         >
           <ApiStatusIndicator />
@@ -844,7 +1008,8 @@ const SettingsView: React.FC = () => {
           {[
             { keys: 'Alt + D', action: 'Go to Dashboard' },
             { keys: 'Alt + M', action: 'Go to Air Quality Map' },
-            { keys: 'Alt + A', action: 'Go to Analysis' },
+            { keys: 'Alt + E', action: 'Go to Data Explorer' },
+            { keys: 'Alt + A', action: 'Go to AI Analysis' },
             { keys: 'Alt + S', action: 'Go to Settings' },
             { keys: 'Shift + ?', action: 'Show shortcuts' },
           ].map(({ keys, action }) => (

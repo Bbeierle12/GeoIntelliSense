@@ -29,18 +29,24 @@ _ndvi_status: dict[str, Any] = {"state": "idle"}
 
 @router.get("/api/landsat/scenes")
 async def list_scenes(
+    bbox: str | None = Query(None, description="west,south,east,north (default: Bakersfield area)"),
     max_cloud: int = Query(15, ge=0, le=100, description="Max cloud cover %"),
     date_range: str | None = Query(None, description="STAC datetime e.g. 2024-01-01/2024-12-31"),
     limit: int = Query(10, ge=1, le=50),
 ):
-    """Search available Landsat scenes covering Bakersfield."""
-    cache_key = {"cloud": max_cloud, "dates": date_range, "limit": limit}
+    """Search available Landsat scenes. Provide bbox for any location worldwide."""
+    search_bbox = BAKERSFIELD_BBOX
+    if bbox:
+        search_bbox = [float(x.strip()) for x in bbox.split(",")]
+
+    cache_key = {"bbox": str(search_bbox), "cloud": max_cloud, "dates": date_range, "limit": limit}
     cached, hit = await get_cached("landsat-scenes", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, SCENES_TTL))
 
     try:
         scenes = await search_scenes(
+            bbox=search_bbox,
             max_cloud=max_cloud,
             date_range=date_range,
             limit=limit,
@@ -48,7 +54,7 @@ async def list_scenes(
 
         result = {
             "count": len(scenes),
-            "bbox": BAKERSFIELD_BBOX,
+            "bbox": search_bbox,
             "maxCloudCover": max_cloud,
             "scenes": scenes,
         }

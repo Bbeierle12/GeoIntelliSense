@@ -34,7 +34,7 @@ export const EarthquakeWidget: React.FC = () => {
           <div key={e.eventId} className="flex items-center justify-between text-xs">
             <span className={`font-semibold w-10 ${magColor(e.magnitude)}`}>M{e.magnitude.toFixed(1)}</span>
             <span className="text-slate-400 flex-1 truncate mx-2">{e.place}</span>
-            <span className="text-slate-500 flex-shrink-0">{e.distanceFromBakersfieldKm.toFixed(0)} km</span>
+            <span className="text-slate-500 flex-shrink-0">{e.distanceKm.toFixed(0)} km</span>
           </div>
         ))}
         {events.length === 0 && !loading && (

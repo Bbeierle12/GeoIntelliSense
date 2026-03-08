@@ -1,7 +1,11 @@
 import { calculateFeelsLike, calculateET0 } from '../utils/weatherUtils';
 
-const INGESTION_URL = 'http://localhost:3001/api';
-const ANALYTICS_URL = 'http://localhost:3002/api';
+const INGESTION_URL = import.meta.env.VITE_INGESTION_URL
+  ? `${import.meta.env.VITE_INGESTION_URL}/api`
+  : 'http://localhost:3001/api';
+const ANALYTICS_URL = import.meta.env.VITE_GATEWAY_URL
+  ? `${import.meta.env.VITE_GATEWAY_URL}/api`
+  : 'http://localhost:8080/api';
 
 export interface WeatherData {
     temp: number;
