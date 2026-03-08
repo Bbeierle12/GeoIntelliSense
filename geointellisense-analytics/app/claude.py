@@ -15,13 +15,23 @@ SJV_SYSTEM = (
     "Provide data-driven, actionable insights. Use markdown formatting."
 )
 
-# In-memory conversation history keyed by a simple session approach.
-# For a single-server deployment this is equivalent to the Express `let chat;` singleton.
 _chat_history: list[dict] = []
 
 
 def get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+
+def get_system_with_fire_context(base_system: str) -> str:
+    """Inject active fire/smoke context into system prompt if fires are detected."""
+    try:
+        from app.routes.fires import get_current_smoke_context
+        ctx = get_current_smoke_context()
+        if ctx:
+            return f"{base_system}\n\nCURRENT CONDITIONS:\n{ctx}"
+    except ImportError:
+        pass
+    return base_system
 
 
 def chat_history() -> list[dict]:

@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.claude import get_client, CHAT_SYSTEM, chat_history, append_chat
+from app.claude import get_client, CHAT_SYSTEM, get_system_with_fire_context, chat_history, append_chat
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ async def chat(req: ChatRequest):
         resp = get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
-            system=CHAT_SYSTEM,
+            system=get_system_with_fire_context(CHAT_SYSTEM),
             messages=chat_history(),
         )
 

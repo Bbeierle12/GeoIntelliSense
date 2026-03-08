@@ -21,6 +21,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _client: redis.Redis | None = None
+_binary_client: redis.Redis | None = None
 
 PREFIX = "geointelli:analytics"
 
@@ -32,11 +33,22 @@ async def get_redis() -> redis.Redis:
     return _client
 
 
+async def get_redis_binary() -> redis.Redis:
+    """Redis connection that returns bytes (for tile/binary caching)."""
+    global _binary_client
+    if _binary_client is None:
+        _binary_client = redis.from_url(settings.redis_url, decode_responses=False)
+    return _binary_client
+
+
 async def close_redis() -> None:
-    global _client
+    global _client, _binary_client
     if _client is not None:
         await _client.aclose()
         _client = None
+    if _binary_client is not None:
+        await _binary_client.aclose()
+        _binary_client = None
 
 
 def _key(endpoint: str, params: dict[str, Any] | str = "") -> str:

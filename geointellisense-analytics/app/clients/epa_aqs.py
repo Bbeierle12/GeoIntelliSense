@@ -35,15 +35,19 @@ PARAM_PM25 = "88101"   # PM2.5 - Local Conditions (FRM/FEM)
 PARAM_PM10 = "81102"   # PM10
 PARAM_OZONE = "44201"  # Ozone
 
+PARAMS_ALL = [PARAM_PM25, PARAM_PM10, PARAM_OZONE]
+
 # Pause between requests to stay under 10 req/min
 REQUEST_PAUSE_SECS = 6.0
 
 
 class DailySummary(BaseModel):
     date: str
+    state_code: str = "06"
     county: str
     county_code: str
     site_number: str
+    parameter_code: str = ""
     aqi: int | None = None
     arithmetic_mean: float | None = None
     first_max_value: float | None = None
@@ -57,7 +61,7 @@ class EpaAqsClient:
     def __init__(self, email: str, key: str):
         self.email = email
         self.key = key
-        self._http = httpx.AsyncClient(timeout=30.0)
+        self._http = httpx.AsyncClient(timeout=60.0)
         self._last_request: float = 0.0
 
     async def close(self) -> None:
@@ -73,7 +77,8 @@ class EpaAqsClient:
         params["email"] = self.email
         params["key"] = self.key
 
-        logger.info("EPA AQS request: %s params=%s", url.split("/")[-1], {k: v for k, v in params.items() if k not in ("email", "key")})
+        logger.info("EPA AQS request: %s params=%s", url.split("/")[-1],
+                     {k: v for k, v in params.items() if k not in ("email", "key")})
 
         resp = await self._http.get(url, params=params)
         self._last_request = asyncio.get_event_loop().time()
@@ -91,40 +96,6 @@ class EpaAqsClient:
             logger.info("EPA AQS: %s — %s rows", status, rows)
 
         return body
-
-    # ── Public methods ───────────────────────────────
-
-    async def get_daily_pm25_by_county(
-        self,
-        county_code: str,
-        bdate: date,
-        edate: date,
-        state: str = "06",
-    ) -> list[DailySummary]:
-        """Fetch PM2.5 daily summaries for a single county."""
-        url = f"{AQS_BASE}/dailyData/byCounty"
-        params = {
-            "param": PARAM_PM25,
-            "bdate": bdate.strftime("%Y%m%d"),
-            "edate": edate.strftime("%Y%m%d"),
-            "state": state,
-            "county": county_code,
-        }
-        body = await self._throttled_get(url, params)
-        return _parse_daily(body, "PM2.5")
-
-    async def get_daily_pm25_all_sjv(
-        self,
-        bdate: date,
-        edate: date,
-    ) -> list[DailySummary]:
-        """Fetch PM2.5 daily summaries for all 6 SJV counties, respecting rate limits."""
-        all_results: list[DailySummary] = []
-        for code, name in SJV_COUNTIES.items():
-            logger.info("Fetching PM2.5 for %s (county %s)...", name, code)
-            results = await self.get_daily_pm25_by_county(code, bdate, edate)
-            all_results.extend(results)
-        return all_results
 
     async def get_daily_by_county(
         self,
@@ -145,10 +116,30 @@ class EpaAqsClient:
         }
         body = await self._throttled_get(url, params)
         param_name = {"88101": "PM2.5", "81102": "PM10", "44201": "Ozone"}.get(param, param)
-        return _parse_daily(body, param_name)
+        return _parse_daily(body, param_name, param)
+
+    async def get_daily_pm25_by_county(
+        self, county_code: str, bdate: date, edate: date, state: str = "06",
+    ) -> list[DailySummary]:
+        return await self.get_daily_by_county(county_code, PARAM_PM25, bdate, edate, state)
+
+    async def get_daily_pm25_all_sjv(self, bdate: date, edate: date) -> list[DailySummary]:
+        all_results: list[DailySummary] = []
+        for code, name in SJV_COUNTIES.items():
+            logger.info("Fetching PM2.5 for %s (county %s)...", name, code)
+            results = await self.get_daily_pm25_by_county(code, bdate, edate)
+            all_results.extend(results)
+        return all_results
+
+    async def backfill_county_year(
+        self, county_code: str, param: str, year: int, state: str = "06",
+    ) -> list[DailySummary]:
+        """Fetch a full year of daily data for one county+param. EPA limits to 1 year per request."""
+        bdate = date(year, 1, 1)
+        edate = date(year, 12, 31)
+        return await self.get_daily_by_county(county_code, param, bdate, edate, state)
 
     async def signup(self, email: str) -> str:
-        """Request an API key — EPA sends a confirmation email."""
         url = f"{AQS_BASE}/signup"
         params = {"email": email}
         resp = await self._http.get(url, params=params)
@@ -156,8 +147,7 @@ class EpaAqsClient:
         return resp.text
 
 
-def _parse_daily(body: dict[str, Any], parameter: str) -> list[DailySummary]:
-    """Parse the EPA AQS daily data response into DailySummary models."""
+def _parse_daily(body: dict[str, Any], parameter: str, parameter_code: str) -> list[DailySummary]:
     raw = body.get("Data", [])
     if not raw:
         return []
@@ -166,9 +156,11 @@ def _parse_daily(body: dict[str, Any], parameter: str) -> list[DailySummary]:
     for row in raw:
         results.append(DailySummary(
             date=row.get("date_local", ""),
+            state_code=row.get("state_code", "06"),
             county=row.get("county", ""),
             county_code=row.get("county_code", ""),
             site_number=row.get("site_number", ""),
+            parameter_code=parameter_code,
             aqi=row.get("aqi"),
             arithmetic_mean=row.get("arithmetic_mean"),
             first_max_value=row.get("first_max_value"),

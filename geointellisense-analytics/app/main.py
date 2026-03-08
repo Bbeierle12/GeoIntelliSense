@@ -24,6 +24,15 @@ from app.routes.nws_forecast import router as nws_forecast_router
 from app.routes.maps_config import router as maps_config_router
 from app.routes.epa_aqi import router as epa_aqi_router
 from app.routes.earthquakes import router as earthquakes_router
+from app.routes.airnow import router as airnow_router
+from app.routes.weather_historical import router as weather_historical_router
+from app.routes.calgem import router as calgem_router
+from app.routes.enviroscreen import router as enviroscreen_router
+from app.routes.sentinel import router as sentinel_router
+from app.routes.water import router as water_router, start_water_polling
+from app.routes.fires import router as fires_router, start_fire_polling
+from app.routes.traffic import router as traffic_router
+from app.routes.cropscape import router as cropscape_router
 from app.routes.admin import router as admin_router
 
 
@@ -31,6 +40,8 @@ from app.routes.admin import router as admin_router
 async def lifespan(app: FastAPI):
     await get_pool()
     await get_redis()
+    await start_water_polling()
+    await start_fire_polling()
     yield
     await close_redis()
     await close_pool()
@@ -59,6 +70,15 @@ app.include_router(nws_forecast_router)
 app.include_router(maps_config_router)
 app.include_router(epa_aqi_router)
 app.include_router(earthquakes_router)
+app.include_router(airnow_router)
+app.include_router(weather_historical_router)
+app.include_router(calgem_router)
+app.include_router(enviroscreen_router)
+app.include_router(sentinel_router)
+app.include_router(water_router)
+app.include_router(fires_router)
+app.include_router(traffic_router)
+app.include_router(cropscape_router)
 app.include_router(admin_router)
 
 

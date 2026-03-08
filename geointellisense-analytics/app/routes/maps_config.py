@@ -14,4 +14,19 @@ async def maps_config():
             status_code=500,
             content={"error": "GOOGLE_MAPS_API_KEY not configured"},
         )
-    return {"apiKey": api_key}
+    return {
+        "apiKey": api_key,
+        "tileLayers": {
+            "sentinel-true-color": "/api/sentinel/tile/true-color/{z}/{x}/{y}.png",
+            "sentinel-2023": "/api/sentinel/tile/true-color-2023/{z}/{x}/{y}.png",
+            "terrain": "/api/sentinel/tile/terrain/{z}/{x}/{y}.png",
+            "overlay": "/api/sentinel/tile/overlay/{z}/{x}/{y}.png",
+            "cropland-2023": "/api/cropscape/tile/2023/{z}/{x}/{y}.png",
+        },
+        "dataOverlays": {
+            "activeFires": "/api/fires/active",
+            "wells": "/api/calgem/wells",
+            "enviroscreen": "/api/enviroscreen/tracts",
+            "waterStations": "/api/water/current",
+        },
+    }
