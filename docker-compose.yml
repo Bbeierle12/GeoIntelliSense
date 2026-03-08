@@ -92,6 +92,7 @@ services:
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       DEM_DATA_DIR: /app/data/dem
       LANDSAT_DATA_DIR: /app/data/landsat
+      MODEL_DIR: /app/data/models
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
@@ -99,6 +100,7 @@ services:
     volumes:
       - demdata:/app/data/dem
       - landsatdata:/app/data/landsat
+      - modeldata:/app/data/models
     depends_on:
       db:
         condition: service_healthy
@@ -140,6 +142,8 @@ volumes:
   demdata:
     driver: local
   landsatdata:
+    driver: local
+  modeldata:
     driver: local
   caddydata:
     driver: local

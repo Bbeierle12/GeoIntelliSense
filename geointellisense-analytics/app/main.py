@@ -37,6 +37,8 @@ from app.routes.elevation import router as elevation_router
 from app.routes.landsat import router as landsat_router
 from app.routes.inversion import router as inversion_router, start_inversion_polling
 from app.routes.water_quality import router as water_quality_router
+from app.routes.predict import router as predict_router, start_retrain_scheduler
+from app.routes.explore import router as explore_router
 from app.routes.ai_context import router as ai_context_router
 from app.routes.demographics import router as demographics_router
 from app.routes.admin import router as admin_router
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
     await start_water_polling()
     await start_fire_polling()
     await start_inversion_polling()
+    await start_retrain_scheduler()
     yield
     await close_redis()
     await close_pool()
@@ -90,6 +93,8 @@ app.include_router(elevation_router)
 app.include_router(landsat_router)
 app.include_router(inversion_router)
 app.include_router(water_quality_router)
+app.include_router(predict_router)
+app.include_router(explore_router)
 app.include_router(ai_context_router)
 app.include_router(demographics_router)
 app.include_router(admin_router)

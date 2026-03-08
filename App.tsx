@@ -11,6 +11,7 @@ import Sidebar from './components/Sidebar';
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const AirQualityMapView = lazy(() => import('./components/AirQualityMapView'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
+const DataExplorer = lazy(() => import('./components/DataExplorer'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
 
 // Loading fallback for lazy-loaded routes
@@ -44,6 +45,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         announce('Navigated to Air Quality Map');
       },
       description: 'Go to Air Quality Map'
+    },
+    {
+      key: 'e',
+      altKey: true,
+      action: () => {
+        navigate('/explore');
+        announce('Navigated to Data Explorer');
+      },
+      description: 'Go to Data Explorer'
     },
     {
       key: 'a',
@@ -144,6 +154,16 @@ const App: React.FC = () => {
                   <Layout>
                     <Suspense fallback={<RouteLoadingFallback />}>
                       <AnalysisView />
+                    </Suspense>
+                  </Layout>
+                }
+              />
+              <Route
+                path="/explore"
+                element={
+                  <Layout>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <DataExplorer />
                     </Suspense>
                   </Layout>
                 }

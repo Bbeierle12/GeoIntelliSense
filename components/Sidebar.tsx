@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { DashboardIcon } from './icons/DashboardIcon';
 import { AirIcon } from './icons/AirIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
+import { TrendingUpIcon } from './icons/TrendingUpIcon';
 import { SettingsIcon } from './icons/SettingsIcon';
 
 const Sidebar: React.FC = () => {
@@ -23,13 +24,21 @@ const Sidebar: React.FC = () => {
       shortcut: 'Alt+M',
       description: 'Interactive 3D air quality visualization'
     },
-    { 
-      id: 'analysis', 
-      path: '/analysis', 
-      label: 'Advanced Analysis', 
+    {
+      id: 'explore',
+      path: '/explore',
+      label: 'Data Explorer',
+      icon: TrendingUpIcon,
+      shortcut: 'Alt+E',
+      description: 'Explore correlations across data sources'
+    },
+    {
+      id: 'analysis',
+      path: '/analysis',
+      label: 'AI Analysis',
       icon: SparklesIcon,
       shortcut: 'Alt+A',
-      description: 'Perform in-depth data analysis'
+      description: 'AI-powered environmental analysis'
     },
   ] as const;
 

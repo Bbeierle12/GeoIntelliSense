@@ -12,6 +12,7 @@ import {
   HistoricalWeatherRecord
 } from '../services/dataService';
 import { locations, LocationKey } from '../data/dashboardData';
+import LiveDashboard from './dashboard/LiveDashboard';
 
 const comparisonColors = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#eab308'];
 
@@ -499,11 +500,14 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold text-slate-100 mb-2">Welcome to GeoIntelliSense</h2>
+      {/* Live Widgets */}
+      <LiveDashboard />
+
+      {/* Historical Analysis Section */}
+      <div className="pt-6 border-t border-brand-secondary">
+        <h2 className="text-3xl font-bold text-slate-100 mb-2">Historical Analysis</h2>
         <p className="text-slate-400 max-w-3xl">
-          This dashboard provides an analytical view of air quality and weather data for the San Joaquin Valley.
-          Select one or more locations below to analyze trends and compare data.
+          Select one or more locations below to analyze long-term trends and compare data across the San Joaquin Valley.
         </p>
       </div>
 

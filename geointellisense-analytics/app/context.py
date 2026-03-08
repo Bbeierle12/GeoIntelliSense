@@ -65,6 +65,7 @@ async def build_live_context() -> dict[str, Any]:
     context["water"] = await _get_water_context(pool)
     context["enviroscreen"] = await _get_enviroscreen_context(pool)
     context["inversion"] = _get_inversion_context()
+    context["prediction"] = await _get_prediction_context(pool)
 
     return context
 
@@ -161,6 +162,24 @@ async def build_context_text() -> str:
             lines.append("  TULE FOG CONDITIONS LIKELY — near-zero visibility expected in valley")
         if strength in ("moderate", "strong"):
             lines.append("  *** Pollutant trapping active — AQI readings should be interpreted with this in mind ***")
+        lines.append("")
+
+    # ML Prediction
+    pred = ctx.get("prediction", {})
+    if pred.get("predictedAqi") is not None:
+        lines.append("── Local AQI Prediction (24h) ──")
+        lines.append(f"  Predicted AQI: {pred['predictedAqi']} ({pred.get('category', '?')})")
+        ci = pred.get("confidenceInterval", {})
+        if ci:
+            lines.append(f"  95% confidence: {ci.get('low', '?')}–{ci.get('high', '?')}")
+        if pred.get("topFactors"):
+            top3 = pred["topFactors"][:3]
+            factor_strs = [f"{f['feature']}({f['importance']:.0%})" for f in top3]
+            lines.append(f"  Top drivers: {', '.join(factor_strs)}")
+        lines.append(f"  Model R²: {pred.get('modelR2', '?')}, MAE: {pred.get('modelMAE', '?')}")
+        if pred.get("airnowComparison"):
+            an = pred["airnowComparison"]
+            lines.append(f"  AirNow forecast for comparison: AQI {an.get('aqi', '?')} ({an.get('category', '?')})")
         lines.append("")
 
     if stale_sources:
@@ -466,3 +485,18 @@ def _get_inversion_context() -> dict[str, Any]:
         return {"status": status, "freshness": _freshness(last_updated, "inversion")}
 
     return {"status": None, "freshness": _freshness(None, "inversion")}
+
+
+async def _get_prediction_context(pool) -> dict[str, Any]:
+    """Get the latest AQI prediction from the ML model."""
+    try:
+        from app.ml.aqi_model import predict_aqi, get_model
+        model, _ = get_model()
+        if model is None:
+            return {}
+
+        result = await predict_aqi(pool)
+        return result or {}
+    except Exception as e:
+        logger.warning("Prediction context fetch failed: %s", e)
+        return {}
