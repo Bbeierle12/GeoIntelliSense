@@ -69,28 +69,44 @@ async def _poll_loop():
         await asyncio.sleep(1800)  # 30 minutes
 
 
+def _parse_bbox(bbox_str: str | None) -> tuple[float, float, float, float] | None:
+    """Parse 'south,west,north,east' string into a tuple."""
+    if not bbox_str:
+        return None
+    try:
+        parts = [float(x) for x in bbox_str.split(",")]
+        if len(parts) == 4:
+            return (parts[0], parts[1], parts[2], parts[3])
+    except ValueError:
+        pass
+    return None
+
+
 @router.get("/api/fires/active")
 async def fires_active(
-    max_distance_km: float | None = Query(None, description="Max distance from Bakersfield in km"),
+    max_distance_km: float | None = Query(None, description="Max distance from reference point in km"),
     min_confidence: str | None = Query(None, description="Minimum confidence: low, nominal, high"),
+    bbox: str | None = Query(None, description="Bounding box: south,west,north,east"),
 ):
     if not settings.nasa_firms_key:
         return JSONResponse(status_code=503, content={"error": "NASA FIRMS not configured", "details": "Set NASA_FIRMS_KEY in .env"})
 
-    # Always try the unfiltered cache first (populated by the 30-min poll loop).
-    # Only fetch from FIRMS if the poll hasn't run yet.
-    cache_key = f"{max_distance_km or 'all'}-{min_confidence or 'all'}"
+    bbox_tuple = _parse_bbox(bbox)
+
+    # Build cache key including bbox
+    bbox_key = bbox or "default"
+    cache_key = f"{bbox_key}-{max_distance_km or 'all'}-{min_confidence or 'all'}"
     cached, hit = await get_cached("fires-active", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, FIRE_TTL))
 
-    # Check the poll loop's "all" cache before hitting the API
-    all_cached, all_hit = await get_cached("fires-active", "all")
-    if all_cached is not None and (max_distance_km or min_confidence):
-        # Re-filter the poll loop's cached result instead of fetching again
-        result = _refilter_cached(all_cached, max_distance_km, min_confidence)
-        await set_cached("fires-active", cache_key, result, FIRE_TTL)
-        return JSONResponse(content=result, headers=cache_headers(all_hit, FIRE_TTL))
+    # Check the poll loop's "all" cache (only useful when no custom bbox)
+    if not bbox_tuple:
+        all_cached, all_hit = await get_cached("fires-active", "all")
+        if all_cached is not None and (max_distance_km or min_confidence):
+            result = _refilter_cached(all_cached, max_distance_km, min_confidence)
+            await set_cached("fires-active", cache_key, result, FIRE_TTL)
+            return JSONResponse(content=result, headers=cache_headers(all_hit, FIRE_TTL))
 
     # Source must be enabled to make external API calls
     from app.source_toggles import is_enabled
@@ -98,17 +114,16 @@ async def fires_active(
         return JSONResponse(status_code=503, content={"error": "NASA FIRMS source is disabled", "details": "Enable via POST /api/admin/sources/nasa_firms/enable"})
 
     try:
-        fires = await fetch_all_sources(settings.nasa_firms_key, days=2)
+        fires = await fetch_all_sources(settings.nasa_firms_key, days=2, bbox_override=bbox_tuple)
 
-        result = _format_active(fires, max_distance_km, min_confidence)
+        # Use viewport center as reference point for distance calc if bbox provided
+        ref_lat, ref_lng = 35.3733, -119.0187  # Bakersfield default
+        if bbox_tuple:
+            ref_lat = (bbox_tuple[0] + bbox_tuple[2]) / 2
+            ref_lng = (bbox_tuple[1] + bbox_tuple[3]) / 2
+
+        result = _format_active(fires, max_distance_km, min_confidence, ref_lat=ref_lat, ref_lng=ref_lng)
         await set_cached("fires-active", cache_key, result, FIRE_TTL)
-
-        # Also cache unfiltered for reuse by other param combos
-        if not max_distance_km and not min_confidence:
-            pass  # already cached above as the cache_key
-        else:
-            all_result = _format_active(fires)
-            await set_cached("fires-active", "all", all_result, FIRE_TTL)
 
         # Persist
         if fires:
@@ -188,10 +203,16 @@ def _refilter_cached(cached_result: dict, max_dist: float | None, min_conf: str 
     }
 
 
-def _format_active(fires: list[FireDetection], max_dist: float | None = None, min_conf: str | None = None) -> dict:
+def _format_active(
+    fires: list[FireDetection],
+    max_dist: float | None = None,
+    min_conf: str | None = None,
+    ref_lat: float = 35.3733,
+    ref_lng: float = -119.0187,
+) -> dict:
     items = []
     for f in fires:
-        d = f.to_dict()
+        d = f.to_dict(ref_lat=ref_lat, ref_lng=ref_lng)
         if max_dist and d["distanceKm"] > max_dist:
             continue
         if min_conf:

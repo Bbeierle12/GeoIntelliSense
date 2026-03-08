@@ -59,11 +59,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GeoIntelliSense Analytics", version="0.1.0", lifespan=lifespan)
 
+# CORS — restrict to known origins in production
+_allowed_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:8080",
+]
+# Allow all origins only if no admin token is set (dev mode)
+if not settings.admin_token:
+    _allowed_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "x-api-key", "x-admin-token"],
+    allow_credentials=True,
 )
 
 app.include_router(health_router)

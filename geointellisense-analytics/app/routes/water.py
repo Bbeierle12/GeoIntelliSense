@@ -52,15 +52,30 @@ async def _poll_loop():
         await asyncio.sleep(900)  # 15 minutes
 
 
+def _parse_bbox(bbox_str: str | None) -> tuple[float, float, float, float] | None:
+    if not bbox_str:
+        return None
+    try:
+        parts = [float(x) for x in bbox_str.split(",")]
+        if len(parts) == 4:
+            return (parts[0], parts[1], parts[2], parts[3])
+    except ValueError:
+        pass
+    return None
+
+
 @router.get("/api/water/current")
 async def water_current(
     site_ids: str | None = Query(None, description="Comma-separated USGS site IDs (defaults to SJV stations)"),
+    bbox: str | None = Query(None, description="Bounding box: south,west,north,east"),
 ):
     custom_sites = None
     if site_ids:
         custom_sites = [s.strip() for s in site_ids.split(",") if s.strip()]
 
-    cache_key = site_ids or "all"
+    bbox_tuple = _parse_bbox(bbox)
+
+    cache_key = bbox or site_ids or "all"
     cached, hit = await get_cached("water-current", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, CURRENT_TTL))
@@ -105,7 +120,7 @@ async def water_current(
         return JSONResponse(status_code=503, content={"error": "USGS Water source is disabled", "details": "Enable via POST /api/admin/sources/usgs_water/enable"})
 
     try:
-        readings = await fetch_current(sites=custom_sites)
+        readings = await fetch_current(sites=custom_sites, bbox=bbox_tuple)
 
         if readings:
             await _persist_readings(pool, readings)

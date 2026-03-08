@@ -2,11 +2,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-// SJV bounding box defaults (same as PurpleAir, slightly wider for tectonic context)
-const DEFAULT_MIN_LAT: f64 = 34.5;
-const DEFAULT_MAX_LAT: f64 = 38.5;
-const DEFAULT_MIN_LNG: f64 = -122.0;
-const DEFAULT_MAX_LNG: f64 = -118.0;
+// Global bounding box defaults — ingest worldwide earthquake data
+const DEFAULT_MIN_LAT: f64 = -90.0;
+const DEFAULT_MAX_LAT: f64 = 90.0;
+const DEFAULT_MIN_LNG: f64 = -180.0;
+const DEFAULT_MAX_LNG: f64 = 180.0;
 
 const USGS_URL: &str = "https://earthquake.usgs.gov/fdsnws/event/1/query";
 

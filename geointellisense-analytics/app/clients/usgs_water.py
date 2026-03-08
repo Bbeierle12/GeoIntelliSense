@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from app.http_client import fetch as http_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -60,22 +61,28 @@ class WaterReading:
         return {k: getattr(self, k) for k in self.__slots__}
 
 
-async def fetch_current(sites: list[str] | None = None) -> list[WaterReading]:
-    """Fetch latest instantaneous values for stations."""
-    if sites is None:
-        sites = list(SJV_STATIONS.keys())
-
-    params = {
+async def fetch_current(
+    sites: list[str] | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[WaterReading]:
+    """Fetch latest instantaneous values. Accepts sites list or (south,west,north,east) bbox."""
+    params: dict[str, str] = {
         "format": "json",
-        "sites": ",".join(sites),
         "parameterCd": PARAMS_ALL,
         "siteStatus": "active",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(USGS_IV_URL, params=params)
-        resp.raise_for_status()
-        body = resp.json()
+    if bbox:
+        # USGS expects bBox=west,south,east,north
+        south, west, north, east = bbox
+        params["bBox"] = f"{west},{south},{east},{north}"
+    else:
+        if sites is None:
+            sites = list(SJV_STATIONS.keys())
+        params["sites"] = ",".join(sites)
+
+    resp = await http_fetch(USGS_IV_URL, params=params, timeout=30.0)
+    body = resp.json()
 
     return _parse_iv_response(body)
 
@@ -91,10 +98,8 @@ async def fetch_historical(site: str, start: str, end: str) -> list[WaterReading
         "siteStatus": "all",
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.get(USGS_DV_URL, params=params)
-        resp.raise_for_status()
-        body = resp.json()
+    resp = await http_fetch(USGS_DV_URL, params=params, timeout=60.0)
+    body = resp.json()
 
     return _parse_iv_response(body)
 

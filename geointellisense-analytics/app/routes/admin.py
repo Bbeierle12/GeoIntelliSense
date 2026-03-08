@@ -29,8 +29,11 @@ async def cache_flush(x_admin_token: str = Header(None)):
 # ── Data Source Toggles ─────────────────────────────
 
 @router.get("/api/admin/sources")
-async def list_sources():
-    """List all data source toggle states. No auth required for read."""
+async def list_sources(x_admin_token: str = Header(None)):
+    """List all data source toggle states."""
+    err = _check_admin(x_admin_token)
+    if err:
+        return err
     return {"sources": await get_all_states()}
 
 

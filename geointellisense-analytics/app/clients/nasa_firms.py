@@ -14,7 +14,7 @@ import math
 from datetime import datetime
 from typing import Any
 
-import httpx
+from app.http_client import fetch as http_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -47,36 +47,47 @@ class FireDetection:
         for k in self.__slots__:
             setattr(self, k, kwargs.get(k))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, ref_lat: float = BAKERSFIELD_LAT, ref_lng: float = BAKERSFIELD_LNG) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in self.__slots__}
         if self.acq_datetime:
             d["time"] = self.acq_datetime.isoformat() if hasattr(self.acq_datetime, "isoformat") else str(self.acq_datetime)
-        d["distanceKm"] = round(_haversine(self.latitude, self.longitude, BAKERSFIELD_LAT, BAKERSFIELD_LNG), 1)
+        d["distanceKm"] = round(_haversine(self.latitude, self.longitude, ref_lat, ref_lng), 1)
         d["isUpwind"] = _is_upwind(self.latitude, self.longitude)
         return d
 
 
-async def fetch_active_fires(api_key: str, days: int = 2, source: str = "VIIRS_SNPP_NRT") -> list[FireDetection]:
-    """Fetch active fire detections from FIRMS within the SJV bounding box."""
-    bbox = f"{BBOX_WEST},{BBOX_SOUTH},{BBOX_EAST},{BBOX_NORTH}"
+async def fetch_active_fires(
+    api_key: str,
+    days: int = 2,
+    source: str = "VIIRS_SNPP_NRT",
+    bbox_override: tuple[float, float, float, float] | None = None,
+) -> list[FireDetection]:
+    """Fetch active fire detections from FIRMS. Accepts optional (south,west,north,east) bbox."""
+    if bbox_override:
+        south, west, north, east = bbox_override
+        bbox = f"{west},{south},{east},{north}"
+    else:
+        bbox = f"{BBOX_WEST},{BBOX_SOUTH},{BBOX_EAST},{BBOX_NORTH}"
     url = f"{FIRMS_BASE}/{api_key}/{source}/{bbox}/{days}"
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(url)
-        if resp.status_code == 401:
-            raise ValueError("Invalid NASA FIRMS MAP_KEY")
-        resp.raise_for_status()
+    resp = await http_fetch(url, timeout=30.0)
+    if resp.status_code == 401:
+        raise ValueError("Invalid NASA FIRMS MAP_KEY")
 
     return _parse_csv(resp.text, source)
 
 
-async def fetch_all_sources(api_key: str, days: int = 2) -> list[FireDetection]:
-    """Fetch from both VIIRS and MODIS."""
+async def fetch_all_sources(
+    api_key: str,
+    days: int = 2,
+    bbox_override: tuple[float, float, float, float] | None = None,
+) -> list[FireDetection]:
+    """Fetch from both VIIRS and MODIS. Accepts optional (south,west,north,east) bbox."""
     all_fires: list[FireDetection] = []
 
     for source in ["VIIRS_SNPP_NRT", "MODIS_NRT"]:
         try:
-            fires = await fetch_active_fires(api_key, days, source)
+            fires = await fetch_active_fires(api_key, days, source, bbox_override=bbox_override)
             all_fires.extend(fires)
             logger.info("FIRMS %s: %d detections", source, len(fires))
         except Exception as e:

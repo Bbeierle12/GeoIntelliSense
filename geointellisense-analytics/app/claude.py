@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 import anthropic
 
@@ -19,9 +20,53 @@ SJV_SYSTEM = (
     "Provide data-driven, actionable insights. Use markdown formatting."
 )
 
-_chat_history: list[dict] = []
+# ── Per-session chat history ─────────────────────────
+# Maps session_id -> list of messages. Sessions expire after MAX_SESSIONS.
 
-# Cached live context text (updated by get_system_with_live_context)
+MAX_SESSIONS = 100
+MAX_HISTORY_PER_SESSION = 50
+
+_sessions: dict[str, list[dict]] = {}
+_session_order: list[str] = []  # LRU tracking
+
+
+def create_session() -> str:
+    """Create a new chat session and return its ID."""
+    session_id = str(uuid.uuid4())
+    _sessions[session_id] = []
+    _session_order.append(session_id)
+    # Evict oldest sessions if over limit
+    while len(_session_order) > MAX_SESSIONS:
+        old = _session_order.pop(0)
+        _sessions.pop(old, None)
+    return session_id
+
+
+def get_session_history(session_id: str) -> list[dict]:
+    """Get chat history for a session. Returns empty list if not found."""
+    return _sessions.get(session_id, [])
+
+
+def append_to_session(session_id: str, role: str, content: str) -> None:
+    """Append a message to a session's history."""
+    if session_id not in _sessions:
+        _sessions[session_id] = []
+        _session_order.append(session_id)
+    history = _sessions[session_id]
+    history.append({"role": role, "content": content})
+    # Trim oldest messages if over limit
+    if len(history) > MAX_HISTORY_PER_SESSION:
+        _sessions[session_id] = history[-MAX_HISTORY_PER_SESSION:]
+
+
+def reset_session(session_id: str) -> None:
+    """Clear a session's history."""
+    if session_id in _sessions:
+        _sessions[session_id].clear()
+
+
+# ── Cached live context ──────────────────────────────
+
 _cached_context: str = ""
 _cached_context_ts: float = 0
 
@@ -77,13 +122,151 @@ def get_system_with_fire_context(base_system: str) -> str:
     return base_system
 
 
-def chat_history() -> list[dict]:
-    return _chat_history
+# ── Tool definitions for Claude ──────────────────────
+
+TOOLS = [
+    {
+        "name": "get_air_quality",
+        "description": "Get current air quality readings for a location or region. Returns AQI, PM2.5, and other pollutant levels.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box as 'south,west,north,east' decimal degrees. Example: '34.5,-121.0,37.5,-117.5'",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_earthquakes",
+        "description": "Get recent earthquake events for a region. Returns magnitude, location, depth, and time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box as 'south,west,north,east'",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to look back (1-365, default 7)",
+                },
+                "min_magnitude": {
+                    "type": "number",
+                    "description": "Minimum magnitude threshold (default 2.0)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_active_fires",
+        "description": "Get active fire/hotspot detections from NASA satellite data.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box as 'south,west,north,east'",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_water_levels",
+        "description": "Get current water level readings (streamflow, gage height) from USGS monitoring stations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box as 'south,west,north,east'",
+                },
+                "site_ids": {
+                    "type": "string",
+                    "description": "Comma-separated USGS site IDs (optional, overrides bbox)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_weather_forecast",
+        "description": "Get NWS weather forecast for a specific location.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "lat": {
+                    "type": "number",
+                    "description": "Latitude of the location",
+                },
+                "lng": {
+                    "type": "number",
+                    "description": "Longitude of the location",
+                },
+            },
+            "required": ["lat", "lng"],
+        },
+    },
+]
 
 
-def append_chat(role: str, content: str) -> None:
-    _chat_history.append({"role": role, "content": content})
+async def execute_tool(tool_name: str, tool_input: dict) -> str:
+    """Execute a tool call and return the result as a string."""
+    import json
+    import httpx
 
+    base = f"http://localhost:{settings.port}"
 
-def reset_chat() -> None:
-    _chat_history.clear()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            if tool_name == "get_air_quality":
+                params = {}
+                if tool_input.get("bbox"):
+                    params["bbox"] = tool_input["bbox"]
+                resp = await client.get(f"{base}/api/aqi-snapshot", params=params)
+                # Fall back to DB-based snapshot
+                if resp.status_code != 200:
+                    resp = await client.get("http://localhost:3001/api/aqi-snapshot")
+
+            elif tool_name == "get_earthquakes":
+                params = {
+                    "days": tool_input.get("days", 7),
+                    "min_magnitude": tool_input.get("min_magnitude", 2.0),
+                }
+                if tool_input.get("bbox"):
+                    params["bbox"] = tool_input["bbox"]
+                resp = await client.get(f"{base}/api/earthquakes/recent", params=params)
+
+            elif tool_name == "get_active_fires":
+                params = {}
+                if tool_input.get("bbox"):
+                    params["bbox"] = tool_input["bbox"]
+                resp = await client.get(f"{base}/api/fires/active", params=params)
+
+            elif tool_name == "get_water_levels":
+                params = {}
+                if tool_input.get("bbox"):
+                    params["bbox"] = tool_input["bbox"]
+                if tool_input.get("site_ids"):
+                    params["site_ids"] = tool_input["site_ids"]
+                resp = await client.get(f"{base}/api/water/current", params=params)
+
+            elif tool_name == "get_weather_forecast":
+                lat = tool_input["lat"]
+                lng = tool_input["lng"]
+                resp = await client.get(f"{base}/api/forecast", params={"lat": lat, "lng": lng})
+
+            else:
+                return json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+            if resp.status_code == 200:
+                return resp.text
+            else:
+                return json.dumps({"error": f"API returned {resp.status_code}", "body": resp.text[:500]})
+
+    except Exception as e:
+        return json.dumps({"error": f"Tool execution failed: {str(e)}"})

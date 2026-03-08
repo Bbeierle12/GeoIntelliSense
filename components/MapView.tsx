@@ -6,14 +6,12 @@ import { SearchIcon } from './icons/SearchIcon';
 import {
   useLiveData,
   useAqiSnapshot,
-  useActiveFires,
-  useEarthquakes,
-  useWaterLevels,
   type AqiSnapshot,
   type FiresData,
   type EarthquakeData,
   type WaterData,
 } from '../hooks/useLiveData';
+import { useViewport, ZOOM_THRESHOLDS } from '../hooks/useViewport';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
 
@@ -109,29 +107,44 @@ const MapView: React.FC = () => {
     waterQuality: false,
   });
 
-  // ── Data hooks ──────────────────────────────────────
+  // ── Viewport tracking ───────────────────────────────
+
+  const { bbox, bboxString, zoom, center, updateViewport } = useViewport();
+
+  // ── Data hooks (viewport-aware) ───────────────────
 
   const { data: aqiData } = useAqiSnapshot();
-  const { data: firesData } = useActiveFires();
-  const { data: quakeData } = useEarthquakes();
-  const { data: waterData } = useWaterLevels();
 
-  // On-demand layers (only fetch when toggled on)
-  const bbox = '34.5,-121.0,37.5,-117.5';
+  const { data: firesData } = useLiveData<FiresData>(
+    `/api/fires/active?bbox=${bboxString}`,
+    { refreshInterval: 300_000, enabled: layers.fires && zoom >= ZOOM_THRESHOLDS.fires },
+  );
+
+  const { data: quakeData } = useLiveData<EarthquakeData>(
+    `/api/earthquakes/recent?days=7&min_magnitude=2.0&lat=${center.lat.toFixed(4)}&lon=${center.lng.toFixed(4)}&bbox=${bboxString}`,
+    { refreshInterval: 300_000, enabled: layers.earthquakes && zoom >= ZOOM_THRESHOLDS.earthquakes },
+  );
+
+  const { data: waterData } = useLiveData<WaterData>(
+    `/api/water/current?bbox=${bboxString}`,
+    { refreshInterval: 900_000, enabled: layers.water && zoom >= ZOOM_THRESHOLDS.water },
+  );
+
+  // On-demand layers (only fetch when toggled on + zoomed in enough)
   const { data: wellsData } = useLiveData<WellsResponse>(
-    `/api/calgem/wells?bbox=${bbox}&limit=500`,
-    { enabled: layers.wells },
+    `/api/calgem/wells?bbox=${bboxString}&limit=500`,
+    { enabled: layers.wells && zoom >= ZOOM_THRESHOLDS.wells },
   );
   const { data: wqData } = useLiveData<WqWellsResponse>(
-    `/api/water-quality/wells?bbox=${bbox}&exceeds_only=true`,
-    { enabled: layers.waterQuality },
+    `/api/water-quality/wells?bbox=${bboxString}&exceeds_only=true`,
+    { enabled: layers.waterQuality && zoom >= ZOOM_THRESHOLDS.waterQuality },
   );
 
   // ── Load Google Maps ────────────────────────────────
 
   useEffect(() => {
     // Prevent double-load from React Strict Mode
-    if (isScriptLoaded.current || window.google?.maps?.Map) {
+    if (isScriptLoaded.current || window.google?.maps) {
       setIsApiReady(true);
       setIsLoading(false);
       return;
@@ -142,7 +155,7 @@ const MapView: React.FC = () => {
     if (existing) {
       // Script is loading or loaded — wait for google.maps to appear
       const check = setInterval(() => {
-        if (window.google?.maps?.Map) {
+        if (window.google?.maps) {
           clearInterval(check);
           isScriptLoaded.current = true;
           setIsApiReady(true);
@@ -165,16 +178,10 @@ const MapView: React.FC = () => {
         const script = document.createElement('script');
         script.id = 'google-maps-script';
         script.async = true;
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         script.onload = () => {
-          // With loading=async, google.maps.Map may not exist at script.onload
-          const poll = setInterval(() => {
-            if (window.google?.maps?.Map) {
-              clearInterval(poll);
-              isScriptLoaded.current = true;
-              if (!cancelled) { setIsApiReady(true); setIsLoading(false); }
-            }
-          }, 50);
+          isScriptLoaded.current = true;
+          if (!cancelled) { setIsApiReady(true); setIsLoading(false); }
         };
         script.onerror = () => {
           if (!cancelled) { setError('Google Maps failed to load.'); setIsLoading(false); }
@@ -203,14 +210,22 @@ const MapView: React.FC = () => {
       disableDefaultUI: true,
       zoomControl: true,
       mapTypeControl: true,
-      mapTypeControlOptions: { position: google.maps.ControlPosition?.TOP_RIGHT ?? 3 },
+      mapTypeControlOptions: { position: google.maps.ControlPosition.TOP_RIGHT },
     });
 
     mapInstanceRef.current.addListener('click', () => {
       activeInfoRef.current?.close();
       activeInfoRef.current = null;
     });
-  }, [isApiReady]);
+
+    // Track viewport changes for dynamic data loading
+    mapInstanceRef.current.addListener('idle', () => {
+      const bounds = mapInstanceRef.current!.getBounds();
+      if (bounds) {
+        updateViewport(bounds, mapInstanceRef.current!.getZoom() || 9);
+      }
+    });
+  }, [isApiReady, updateViewport]);
 
   // ── Render all markers ──────────────────────────────
 
