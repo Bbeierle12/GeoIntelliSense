@@ -131,7 +131,7 @@ const MapView: React.FC = () => {
 
   useEffect(() => {
     // Prevent double-load from React Strict Mode
-    if (isScriptLoaded.current || window.google?.maps) {
+    if (isScriptLoaded.current || window.google?.maps?.Map) {
       setIsApiReady(true);
       setIsLoading(false);
       return;
@@ -142,7 +142,7 @@ const MapView: React.FC = () => {
     if (existing) {
       // Script is loading or loaded — wait for google.maps to appear
       const check = setInterval(() => {
-        if (window.google?.maps) {
+        if (window.google?.maps?.Map) {
           clearInterval(check);
           isScriptLoaded.current = true;
           setIsApiReady(true);
@@ -167,8 +167,14 @@ const MapView: React.FC = () => {
         script.async = true;
         script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
         script.onload = () => {
-          isScriptLoaded.current = true;
-          if (!cancelled) { setIsApiReady(true); setIsLoading(false); }
+          // With loading=async, google.maps.Map may not exist at script.onload
+          const poll = setInterval(() => {
+            if (window.google?.maps?.Map) {
+              clearInterval(poll);
+              isScriptLoaded.current = true;
+              if (!cancelled) { setIsApiReady(true); setIsLoading(false); }
+            }
+          }, 50);
         };
         script.onerror = () => {
           if (!cancelled) { setError('Google Maps failed to load.'); setIsLoading(false); }
@@ -197,7 +203,7 @@ const MapView: React.FC = () => {
       disableDefaultUI: true,
       zoomControl: true,
       mapTypeControl: true,
-      mapTypeControlOptions: { position: google.maps.ControlPosition.TOP_RIGHT },
+      mapTypeControlOptions: { position: google.maps.ControlPosition?.TOP_RIGHT ?? 3 },
     });
 
     mapInstanceRef.current.addListener('click', () => {
