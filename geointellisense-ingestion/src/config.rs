@@ -24,7 +24,7 @@ impl Config {
             purpleair_interval_secs: env::var("PURPLEAIR_INTERVAL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(120),
+                .unwrap_or(600),  // 10 min default — PurpleAir free tier is 1000 pts/day
             broadcast_interval_secs: env::var("BROADCAST_INTERVAL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())

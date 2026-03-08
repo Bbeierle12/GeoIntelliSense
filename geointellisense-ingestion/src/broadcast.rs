@@ -50,11 +50,28 @@ pub fn spawn_ticker(
         let cache_w = cache.clone();
         let stations_pa = stations.clone();
         let pa = Arc::new(client);
+        let redis_pa = redis.clone();
 
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(purpleair_secs));
             loop {
                 interval.tick().await;
+
+                // Check toggle in Redis — skip fetch if purpleair is disabled
+                {
+                    let mut guard = redis_pa.lock().await;
+                    if let Some(ref mut conn) = *guard {
+                        if !redis_cache::is_source_enabled(conn, "purpleair").await {
+                            tracing::debug!("PurpleAir source disabled, skipping fetch");
+                            continue;
+                        }
+                    }
+                    // If Redis is down, skip fetch (fail-safe: don't burn API points)
+                    else {
+                        tracing::debug!("Redis unavailable, skipping PurpleAir fetch");
+                        continue;
+                    }
+                }
 
                 match pa.fetch_readings(&stations_pa).await {
                     Ok(mut readings) if !readings.is_empty() => {
@@ -115,11 +132,24 @@ pub fn spawn_ticker(
 
 /// Spawns the USGS earthquake poller. Fetches every `interval_secs`, persists to DB,
 /// and caches M3.0+ events for SSE push.
-pub fn spawn_earthquake_poller(pool: PgPool, quake_cache: EarthquakeCache, interval_secs: u64) {
+pub fn spawn_earthquake_poller(pool: PgPool, quake_cache: EarthquakeCache, redis: RedisConn, interval_secs: u64) {
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(interval_secs));
         loop {
             interval.tick().await;
+
+            // Check toggle in Redis
+            {
+                let mut guard = redis.lock().await;
+                if let Some(ref mut conn) = *guard {
+                    if !redis_cache::is_source_enabled(conn, "usgs_earthquakes").await {
+                        tracing::debug!("USGS earthquakes source disabled, skipping fetch");
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+            }
 
             let events = usgs::fetch_and_persist(&pool).await;
 

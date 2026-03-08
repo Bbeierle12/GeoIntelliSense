@@ -54,6 +54,17 @@ pub async fn get_snapshot(conn: &mut RedisPool) -> Option<String> {
     }
 }
 
+/// Check if a data source toggle is enabled in Redis.
+/// The Python analytics service writes these keys.
+/// Returns false if Redis is down or key is missing (default = off).
+pub async fn is_source_enabled(conn: &mut RedisPool, source: &str) -> bool {
+    let key = format!("geointelli:source-toggle:{source}");
+    match conn.get::<_, Option<String>>(&key).await {
+        Ok(Some(v)) => v == "1",
+        _ => false,
+    }
+}
+
 pub async fn flush_all(conn: &mut RedisPool) -> usize {
     let pattern = format!("{PREFIX}:*");
     let keys: Vec<String> = match redis::cmd("KEYS").arg(&pattern).query_async(conn).await {

@@ -27,6 +27,10 @@ async def airnow_current(
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, AIRNOW_TTL))
 
+    from app.source_toggles import is_enabled
+    if not await is_enabled("airnow"):
+        return JSONResponse(status_code=503, content={"error": "AirNow source is disabled", "details": "Enable via POST /api/admin/sources/airnow/enable"})
+
     client = AirNowClient(settings.airnow_api_key)
     try:
         readings = await client.get_all_sjv_current()
@@ -67,6 +71,10 @@ async def airnow_forecast(
     cached, hit = await get_cached("airnow-forecast", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, AIRNOW_TTL))
+
+    from app.source_toggles import is_enabled
+    if not await is_enabled("airnow"):
+        return JSONResponse(status_code=503, content={"error": "AirNow source is disabled", "details": "Enable via POST /api/admin/sources/airnow/enable"})
 
     client = AirNowClient(settings.airnow_api_key)
     try:

@@ -32,6 +32,11 @@ async def start_water_polling():
 async def _poll_loop():
     while True:
         try:
+            from app.source_toggles import is_enabled
+            if not await is_enabled("usgs_water"):
+                await asyncio.sleep(900)
+                continue
+
             readings = await fetch_current()
             if readings:
                 pool = await get_pool()
@@ -53,11 +58,33 @@ async def water_current():
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, CURRENT_TTL))
 
+    # Check DB for recent readings before hitting external API
+    # (the poll loop may have data even if the cache expired)
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT ON (site_no)
+            site_no, site_name, parameter, value, unit, time
+        FROM water_readings
+        WHERE time > now() - interval '2 hours'
+        ORDER BY site_no, time DESC
+        """
+    )
+
+    if rows:
+        result = _format_db_current(rows)
+        await set_cached("water-current", "all", result, CURRENT_TTL)
+        return JSONResponse(content=result, headers=cache_headers(False, CURRENT_TTL))
+
+    # No DB data and no cache — fetch from USGS only if source is enabled
+    from app.source_toggles import is_enabled
+    if not await is_enabled("usgs_water"):
+        return JSONResponse(status_code=503, content={"error": "USGS Water source is disabled", "details": "Enable via POST /api/admin/sources/usgs_water/enable"})
+
     try:
         readings = await fetch_current()
 
         if readings:
-            pool = await get_pool()
             await _persist_readings(pool, readings)
 
         result = _format_current(readings)
@@ -116,6 +143,29 @@ async def water_historical(
 
 
 # ── Helpers ──────────────────────────────────────────
+
+def _format_db_current(rows) -> dict:
+    """Format DB rows as current water readings (avoids external API call)."""
+    sites: dict = {}
+    for r in rows:
+        site_id = r["site_no"]
+        if site_id not in sites:
+            sites[site_id] = {
+                "siteId": site_id,
+                "siteName": r["site_name"],
+                "readings": {},
+            }
+        sites[site_id]["readings"][r["parameter"]] = {
+            "value": r["value"],
+            "units": r["unit"],
+            "time": r["time"].isoformat(),
+        }
+    return {
+        "count": len(sites),
+        "source": "usgs",
+        "stations": list(sites.values()),
+    }
+
 
 def _format_current(readings: list[WaterReading]) -> dict:
     # Group by site

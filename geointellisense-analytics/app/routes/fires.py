@@ -42,6 +42,11 @@ async def _poll_loop():
     global _smoke_context
     while True:
         try:
+            from app.source_toggles import is_enabled
+            if not await is_enabled("nasa_firms"):
+                await asyncio.sleep(1800)
+                continue
+
             fires = await fetch_all_sources(settings.nasa_firms_key, days=2)
             if fires:
                 pool = await get_pool()
@@ -72,16 +77,38 @@ async def fires_active(
     if not settings.nasa_firms_key:
         return JSONResponse(status_code=503, content={"error": "NASA FIRMS not configured", "details": "Set NASA_FIRMS_KEY in .env"})
 
+    # Always try the unfiltered cache first (populated by the 30-min poll loop).
+    # Only fetch from FIRMS if the poll hasn't run yet.
     cache_key = f"{max_distance_km or 'all'}-{min_confidence or 'all'}"
     cached, hit = await get_cached("fires-active", cache_key)
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, FIRE_TTL))
+
+    # Check the poll loop's "all" cache before hitting the API
+    all_cached, all_hit = await get_cached("fires-active", "all")
+    if all_cached is not None and (max_distance_km or min_confidence):
+        # Re-filter the poll loop's cached result instead of fetching again
+        result = _refilter_cached(all_cached, max_distance_km, min_confidence)
+        await set_cached("fires-active", cache_key, result, FIRE_TTL)
+        return JSONResponse(content=result, headers=cache_headers(all_hit, FIRE_TTL))
+
+    # Source must be enabled to make external API calls
+    from app.source_toggles import is_enabled
+    if not await is_enabled("nasa_firms"):
+        return JSONResponse(status_code=503, content={"error": "NASA FIRMS source is disabled", "details": "Enable via POST /api/admin/sources/nasa_firms/enable"})
 
     try:
         fires = await fetch_all_sources(settings.nasa_firms_key, days=2)
 
         result = _format_active(fires, max_distance_km, min_confidence)
         await set_cached("fires-active", cache_key, result, FIRE_TTL)
+
+        # Also cache unfiltered for reuse by other param combos
+        if not max_distance_km and not min_confidence:
+            pass  # already cached above as the cache_key
+        else:
+            all_result = _format_active(fires)
+            await set_cached("fires-active", "all", all_result, FIRE_TTL)
 
         # Persist
         if fires:
@@ -139,6 +166,26 @@ async def fires_history(
 async def smoke_context():
     """Returns the current smoke context string used for AI augmentation."""
     return {"context": _smoke_context, "hasActiveFires": bool(_smoke_context)}
+
+
+def _refilter_cached(cached_result: dict, max_dist: float | None, min_conf: str | None) -> dict:
+    """Re-filter an already-cached unfiltered fire result without hitting the API."""
+    conf_order = {"low": 0, "l": 0, "nominal": 1, "n": 1, "high": 2, "h": 2}
+    items = []
+    for f in cached_result.get("fires", []):
+        if max_dist and f.get("distanceKm", 999) > max_dist:
+            continue
+        if min_conf and conf_order.get(f.get("confidence", ""), 0) < conf_order.get(min_conf, 0):
+            continue
+        items.append(f)
+
+    upwind_count = sum(1 for i in items if i.get("isUpwind"))
+    return {
+        "count": len(items),
+        "upwindCount": upwind_count,
+        "smokeRisk": "high" if upwind_count > 3 else "moderate" if upwind_count > 0 else "low",
+        "fires": items,
+    }
 
 
 def _format_active(fires: list[FireDetection], max_dist: float | None = None, min_conf: str | None = None) -> dict:

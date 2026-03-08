@@ -31,5 +31,6 @@ async def maps_config():
             "enviroscreen": "/api/enviroscreen/tracts",
             "waterStations": "/api/water/current",
             "demographics": "/api/demographics/summary",
+            "waterQuality": "/api/water-quality/wells",
         },
     }

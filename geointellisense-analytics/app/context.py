@@ -24,6 +24,7 @@ SOURCE_INTERVALS = {
     "earthquakes": 300,     # USGS earthquake poller every 5 min
     "water": 900,           # USGS water polling every 15 min
     "enviroscreen": 604800, # Static dataset, 7-day cache
+    "inversion": 1800,      # Inversion polling every 30 min
 }
 
 
@@ -63,6 +64,7 @@ async def build_live_context() -> dict[str, Any]:
     context["earthquakes"] = await _get_earthquake_context(pool)
     context["water"] = await _get_water_context(pool)
     context["enviroscreen"] = await _get_enviroscreen_context(pool)
+    context["inversion"] = _get_inversion_context()
 
     return context
 
@@ -142,6 +144,23 @@ async def build_context_text() -> str:
         lines.append(f"  Kern County tracts: {s.get('tractCount', '?')}")
         lines.append(f"  Avg CES percentile: {s.get('avgCesPercentile', '?')}")
         lines.append(f"  High-burden tracts (≥75th pctl): {s.get('highBurdenCount', '?')}")
+        lines.append("")
+
+    # Inversion
+    inv = ctx.get("inversion", {})
+    if inv.get("status"):
+        s = inv["status"]
+        strength = s.get("inversionStrength", "unknown")
+        lines.append("── Temperature Inversion Status ──")
+        lines.append(f"  Inversion: {strength.upper()}")
+        if s.get("tempDiffC") is not None:
+            lines.append(f"  850mb - surface temp diff: {s['tempDiffC']}°C")
+        if s.get("surfaceTempF") is not None:
+            lines.append(f"  Surface temp: {s['surfaceTempF']}°F")
+        if s.get("fogLikely"):
+            lines.append("  TULE FOG CONDITIONS LIKELY — near-zero visibility expected in valley")
+        if strength in ("moderate", "strong"):
+            lines.append("  *** Pollutant trapping active — AQI readings should be interpreted with this in mind ***")
         lines.append("")
 
     if stale_sources:
@@ -424,3 +443,26 @@ async def _get_enviroscreen_context(pool) -> dict[str, Any]:
     freshness = _freshness(datetime.now(timezone.utc), "enviroscreen") if summary else _freshness(None, "enviroscreen")
 
     return {"summary": summary, "freshness": freshness}
+
+
+def _get_inversion_context() -> dict[str, Any]:
+    """Get current inversion status from the polling module."""
+    status = None
+    try:
+        from app.routes.inversion import get_current_inversion
+        status = get_current_inversion()
+    except Exception as e:
+        logger.warning("Inversion context fetch failed: %s", e)
+
+    if status:
+        # Parse last update time for freshness
+        last_updated = None
+        time_str = status.get("time")
+        if time_str:
+            try:
+                last_updated = datetime.fromisoformat(time_str)
+            except (ValueError, AttributeError):
+                pass
+        return {"status": status, "freshness": _freshness(last_updated, "inversion")}
+
+    return {"status": None, "freshness": _freshness(None, "inversion")}

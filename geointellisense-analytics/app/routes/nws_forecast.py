@@ -22,6 +22,20 @@ async def forecast(
     if cached is not None:
         return JSONResponse(content=cached, headers=cache_headers(hit, NWS_TTL))
 
+    # If requesting specific locations, try filtering from the "all" cache first
+    if location_ids:
+        all_cached, all_hit = await get_cached("forecast", "all")
+        if all_cached is not None:
+            ids_set = {uid.strip() for uid in location_ids.split(",")}
+            filtered = [r for r in all_cached if r.get("locationId") in ids_set]
+            if filtered:
+                await set_cached("forecast", cache_key_params, filtered, NWS_TTL)
+                return JSONResponse(content=filtered, headers=cache_headers(all_hit, NWS_TTL))
+
+    from app.source_toggles import is_enabled
+    if not await is_enabled("nws_forecast"):
+        return JSONResponse(status_code=503, content={"error": "NWS forecast source is disabled", "details": "Enable via POST /api/admin/sources/nws_forecast/enable"})
+
     pool = await get_pool()
 
     if location_ids:

@@ -65,6 +65,7 @@ async fn main() {
     broadcast::spawn_earthquake_poller(
         pool.clone(),
         quake_cache.clone(),
+        redis.clone(),
         cfg.earthquake_interval_secs,
     );
     tracing::info!(
