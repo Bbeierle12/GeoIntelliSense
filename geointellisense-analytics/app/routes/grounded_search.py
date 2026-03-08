@@ -4,12 +4,11 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.claude import get_client, SJV_SYSTEM
+from app.claude import get_client, SJV_SYSTEM, get_system_with_live_context
 
 router = APIRouter()
 
-SEARCH_SYSTEM = (
-    SJV_SYSTEM + "\n\n"
+SEARCH_SUFFIX = (
     "When answering, cite specific sources, studies, or data points you reference. "
     "Format citations as inline references with titles and URLs where possible. "
     "Always ground your analysis in verifiable facts about SJV environmental conditions."
@@ -23,10 +22,11 @@ class GroundedSearchRequest(BaseModel):
 @router.post("/api/grounded-search")
 async def grounded_search(req: GroundedSearchRequest):
     try:
+        system = await get_system_with_live_context(f"{SJV_SYSTEM}\n\n{SEARCH_SUFFIX}")
         resp = get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
-            system=SEARCH_SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": req.prompt}],
         )
 

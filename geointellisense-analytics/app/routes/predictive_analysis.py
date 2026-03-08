@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.claude import get_client
+from app.claude import get_client, get_system_with_live_context
 
 router = APIRouter()
 
@@ -87,10 +87,11 @@ Present the forecast in a clear, well-structured Markdown format with distinct s
 *   **Confidence Level:** State your confidence in this prediction (e.g., High, Medium, Low) and mention potential variables that could alter the outcome.
 """
 
+        system = await get_system_with_live_context(PREDICTIVE_SYSTEM)
         resp = get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
-            system=PREDICTIVE_SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
         )
         return {"text": resp.content[0].text}

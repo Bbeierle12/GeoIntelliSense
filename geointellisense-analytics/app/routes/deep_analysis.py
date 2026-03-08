@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.claude import get_client, SJV_SYSTEM
+from app.claude import get_client, SJV_SYSTEM, get_system_with_live_context
 
 router = APIRouter()
 
@@ -16,11 +16,12 @@ class DeepAnalysisRequest(BaseModel):
 @router.post("/api/deep-analysis")
 async def deep_analysis(req: DeepAnalysisRequest):
     try:
+        system = await get_system_with_live_context(SJV_SYSTEM)
         resp = get_client().messages.create(
             model="claude-opus-4-6",
             max_tokens=40000,
             temperature=1,  # required for extended thinking
-            system=SJV_SYSTEM,
+            system=system,
             thinking={
                 "type": "enabled",
                 "budget_tokens": 32768,

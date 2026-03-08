@@ -22,6 +22,8 @@ async def maps_config():
             "terrain": "/api/sentinel/tile/terrain/{z}/{x}/{y}.png",
             "overlay": "/api/sentinel/tile/overlay/{z}/{x}/{y}.png",
             "cropland-2023": "/api/cropscape/tile/2023/{z}/{x}/{y}.png",
+            "terrain-dem": "/api/elevation/terrain-tile/{z}/{x}/{y}.png",
+            "ndvi-change": "/api/landsat/tile/ndvi-change/{product}/{z}/{x}/{y}.png",
         },
         "dataOverlays": {
             "activeFires": "/api/fires/active",

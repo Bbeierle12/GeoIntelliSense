@@ -90,10 +90,15 @@ services:
       EPA_AQS_KEY: ${EPA_AQS_KEY:-}
       CENSUS_API_KEY: ${CENSUS_API_KEY:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      DEM_DATA_DIR: /app/data/dem
+      LANDSAT_DATA_DIR: /app/data/landsat
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
       - "${ANALYTICS_PORT}:3002"
+    volumes:
+      - demdata:/app/data/dem
+      - landsatdata:/app/data/landsat
     depends_on:
       db:
         condition: service_healthy
@@ -131,6 +136,10 @@ volumes:
   pgdata:
     driver: local
   redisdata:
+    driver: local
+  demdata:
+    driver: local
+  landsatdata:
     driver: local
   caddydata:
     driver: local

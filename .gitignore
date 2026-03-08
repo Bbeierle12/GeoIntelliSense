@@ -38,5 +38,9 @@ geointellisense-analytics/**/__pycache__/
 geointellisense-analytics/.venv/
 geointellisense-analytics/*.pyc
 
+# DEM / raster data (large GeoTIFF files)
+geointellisense-analytics/data/
+*.tif
+
 # Docker
 docker-compose.override.yml

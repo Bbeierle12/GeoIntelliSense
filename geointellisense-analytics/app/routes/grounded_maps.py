@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.claude import get_client, SJV_SYSTEM
+from app.claude import get_client, SJV_SYSTEM, get_system_with_live_context
 
 router = APIRouter()
 
@@ -29,10 +29,11 @@ async def grounded_maps(req: GroundedMapsRequest):
             f"and proximity to pollution sources when answering."
         )
 
+        system = await get_system_with_live_context(f"{SJV_SYSTEM}\n\n{location_context}")
         resp = get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
-            system=f"{SJV_SYSTEM}\n\n{location_context}",
+            system=system,
             messages=[{"role": "user", "content": req.prompt}],
         )
 
