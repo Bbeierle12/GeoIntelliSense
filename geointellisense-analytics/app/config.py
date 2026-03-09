@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     nasa_firms_key: str = ""
     redis_url: str = "redis://localhost:6379"
     census_api_key: str = ""
+    google_maps_api_key: str = ""
     admin_token: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
