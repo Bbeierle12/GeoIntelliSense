@@ -41,6 +41,9 @@ from app.routes.predict import router as predict_router, start_retrain_scheduler
 from app.routes.explore import router as explore_router
 from app.routes.ai_context import router as ai_context_router
 from app.routes.demographics import router as demographics_router
+from app.routes.yard import router as yard_router
+from app.routes.yard_context import router as yard_context_router
+from app.routes.soil import router as soil_router
 from app.routes.admin import router as admin_router
 
 
@@ -108,6 +111,9 @@ app.include_router(predict_router)
 app.include_router(explore_router)
 app.include_router(ai_context_router)
 app.include_router(demographics_router)
+app.include_router(yard_router)
+app.include_router(yard_context_router)
+app.include_router(soil_router)
 app.include_router(admin_router)
 
 
