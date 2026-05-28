@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T18:20:00Z
-Last run: #14 — Lens: Competitive scan (web)
+Last updated: 2026-05-28T19:10:00Z
+Last run: #15 — Lens: Live-time claim audit
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,28 @@ Last run: #14 — Lens: Competitive scan (web)
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #15 — 2026-05-28 — Lens: Live-time claim audit
+**Scope:** `components/dashboard/LiveDashboard.tsx`, `components/Dashboard.tsx`, `components/AirQualityMapView.tsx`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`, `hooks/useDashboardData.ts`, `data/dashboardData.ts`, `services/dataService.ts`, `geointellisense-ingestion/src/broadcast.rs`, `geointellisense-ingestion/src/config.rs`, `docker-compose.yml`, `geointellisense-analytics/app/context.py`, `geointellisense-analytics/app/claude.py`
+
+**Findings:**
+
+- OBSERVATION: `components/Dashboard.tsx:367` — The "Regional Air Quality Index" panel carries the subtitle "Real-time AQI and PM2.5 levels across major cities." The data rendered by this panel comes from `dataService.getCurrentAQI()` (`services/dataService.ts:104`), which on any network or backend failure immediately falls back to hardcoded values in `data/dashboardData.ts` (`dataService.ts:128-136`). `dashboardData.ts:1` is explicitly labeled "This file centralizes the mock data for the dashboard." The fallback values — e.g., Bakersfield AQI 155, Fresno AQI 140 — are compile-time constants. No visual indicator distinguishes the live-fetch path from the mock-fallback path, so users reading "Real-time AQI" may be looking at values that are months old.
+
+- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:83-90` + `config.rs:19-22` + `docker-compose.yml` — The broadcast ticker loop overwrites every reading's `timestamp` field with `chrono::Utc::now()` before each broadcast: `live.iter().map(|r| AqiReading { timestamp: now, ..r.clone() })`. The PurpleAir fetch interval defaults to 600 seconds (`config.rs:20`: `unwrap_or(600)`; confirmed by `docker-compose.yml`: `PURPLEAIR_INTERVAL_SECS: ${PURPLEAIR_INTERVAL_SECS:-600}`). Consequently every SSE event arriving at the browser carries a `timestamp` at most a few milliseconds old, while the `aqi`, `pm25`, and other sensor fields inside it may be up to 10 minutes stale. `AirQualityMapView.tsx:413` displays `{isConnected ? '🔴 Live' : 'Last Updated'}` — when connected, the "🔴 Live" badge is shown regardless of sensor age. The comment at `AirQualityMapView.tsx:4` ("With real-time data streaming via SSE") and the tooltip at `:177` ("Real-time data from EPA monitoring station") similarly overstate data freshness.
+
+- OBSERVATION: `geointellisense-analytics/app/context.py:20` — `SOURCE_INTERVALS["purpleair"] = 120` declares the expected PurpleAir update cadence as 2 minutes. The staleness guard at `context.py:37` marks data stale when `age_seconds > interval * 2` (threshold: 240 seconds). Under the default deployment the actual poll interval is 600 seconds (`PURPLEAIR_INTERVAL_SECS=600`). At any random moment between polls, PurpleAir data in the DB is between 0 and 600 seconds old; any reading older than 240 seconds — the majority at any given moment in steady state — is classified as `"stale"` and triggers the Claude system prompt warning "STALE data sources (may be outdated): purpleair." This means that in a default deployment, virtually every AI chat request injects a staleness caveat for PurpleAir data even when the data is as fresh as the intended 10-minute interval allows, unnecessarily degrading Claude's confidence and response quality. The fix is one character: change `context.py:20` to `"purpleair": 600`.
+
+- OBSERVATION: `hooks/useDashboardData.ts` — This hook, which drives all historical trend charts on the Dashboard page (humidity, wind, UV index, historical AQI, agricultural metrics), contains zero API calls. It imports `dashboardData` from `data/dashboardData.ts` and performs only in-memory aggregations. All data presented is from the pre-baked 12-month range "Jul '23" through "Jun '24" embedded in the source file. There is no UI indicator — no "Last updated" timestamp, no "(historical mock data)" label — to distinguish these static trend charts from genuinely live or fetched data.
+
+- OBSERVATION: `hooks/useRealtimeAQI.ts` (lines ~180-210) — After `maxReconnectAttempts` (default 10) consecutive SSE failures, `startMockData()` is called, which generates AQI values using `Math.random()` for 6 hardcoded city entries. The 3D map view at `AirQualityMapView.tsx:203` is initialized with `fallbackToMock: true`, meaning this switch happens automatically on any sustained SSE outage. The `isConnected` flag flips to `false`, causing `AirQualityMapView.tsx:413` to render "Last Updated" instead of "🔴 Live" — the primary live-state indicator does correctly reflect the disconnect. However, the 3D visualization continues to animate with plausible-looking per-city AQI values (e.g., "Bakersfield: 95 ± random") without any persistent "SIMULATED DATA" watermark. A user who notices the status line switch but remains watching the 3D scene has no persistent visual cue that the moving data is random noise.
+
+**Proposed actions:**
+- Fix `context.py:20`: change `"purpleair": 120` → `"purpleair": 600` to match the actual default polling interval; this eliminates the always-stale classification of PurpleAir under standard deployment — H/L, score 3.0; ties all existing top-10 rows (first-seen #15 > first-seen #1–13); does not displace
+- Stop overwriting sensor timestamps in `broadcast.rs:83-90`: preserve the original sensor `timestamp` and add a separate `broadcastAt` field so "🔴 Live" indicators can display the true sensor-read time rather than the broadcast time — H/L, score 3.0; ties; does not displace
+- Replace "Real-time AQI and PM2.5 levels across major cities." at `Dashboard.tsx:367` with "Latest AQI and PM2.5 levels" and append a `(data as of <timestamp>)` annotation; show "Using cached data" when the fallback activates — M/L, score 2.0
+- Add a `useDashboardData` note or UI badge "(Historical data: Jul '23–Jun '24)" to trend charts driven purely from `data/dashboardData.ts` — M/L, score 2.0
+- Add a full-viewport "SIMULATED DATA" overlay badge in `AirQualityMapView.tsx` when `useRealtimeAQI` is in mock mode (detect via `error === 'Using simulated data (server unavailable)'`) — M/L, score 2.0
+
 ### Run #14 — 2026-05-28 — Lens: Competitive scan (web)
 **Scope:** Web research (Exa search + fetch) on AQI+AI competitors; codebase read via `git show origin/main` of `geointellisense-ingestion/src/aqi.rs`, `purpleair.rs`, `usgs.rs`, `geointellisense-analytics/app/routes/` directory listing, `app/routes/fires.py`, `enviroscreen.py`, `calgem.py`, `cropscape.py`, `traffic.py`; cross-referenced against prior run findings in Active Recommendations.
 
@@ -77,37 +99,8 @@ Last run: #14 — Lens: Competitive scan (web)
 - Move session history to Redis: store as `geointelli:session:<id>` JSON list with 2-hour TTL; update `get_session_history`, `append_to_session`, `reset_session` in `claude.py` — not in top 10 (H/M, score 1.5)
 - Add exponential-backoff retry (max 3 attempts, 1s/2s/4s) for `anthropic.RateLimitError` and `anthropic.InternalServerError` in all five route files — not in top 10 (H/L, score 3.0; newer first-seen than items 1-9, 11th H/L item overall)
 
-### Run #12 — 2026-05-28 — Lens: Deployment / Docker
-**Scope:** `geointellisense-ingestion/Dockerfile`, `geointellisense-analytics/Dockerfile`, `geointellisense-ingestion/.dockerignore`, `geointellisense-analytics/.dockerignore`, `docker-compose.yml`, `Caddyfile`; `geointellisense-analytics/requirements.txt`, `geointellisense-ingestion/Cargo.toml`.
-
-**Findings:**
-
-- OBSERVATION: `docker-compose.yml:4` — `timescale/timescaledb-ha:pg16` is the High-Availability (Patroni-based) variant of TimescaleDB. On amd64 this image is ~1.6 GB uncompressed vs ~400 MB for `timescale/timescaledb:latest-pg16`. The compose file configures no replication workers, no Patroni environment variables, and no streaming-replica endpoints — the HA feature set is entirely unused. Every `docker compose pull` on a fresh machine incurs the full 1.6 GB network cost for a single-node deployment.
-
-- OBSERVATION: `geointellisense-analytics/Dockerfile:3-5` — `libgdal-dev` is installed in the single-stage runtime image. The `-dev` variant pulls compilation headers, pkg-config metadata, and static `.a` libraries (~50–80 MB). At runtime, `rasterio==1.4.*` ships pre-compiled manylinux binary wheels on PyPI that bundle their own GDAL shared objects; the system `libgdal-dev` package is not loaded by the running process. Consequently `libgdal-dev` is present in the final image but unused at runtime, inflating image size by 50–80 MB. If a binary wheel is unavailable and pip falls back to source compilation, `libgdal-dev` is a build-time dependency only and should be in a multi-stage builder stage.
-
-- OBSERVATION: `geointellisense-analytics/Dockerfile:1-16` — The analytics Dockerfile is single-stage with no `USER` directive. The Uvicorn process (and every Python subprocess it may spawn) runs as UID 0 (root) inside the container. Combined with write access to `/app` and the `modeldata` volume, an exploit against any of the 12 `httpx` client routes (e.g., SSRF via a Claude tool call in `claude.py:execute_tool()`) could write arbitrary files as root. The `--security-opt no-new-privileges` flag and a non-root `USER` directive are both absent.
-
-- OBSERVATION: `geointellisense-ingestion/Dockerfile:11` — `RUN cargo build --release 2>/dev/null || true` redirects all stderr to `/dev/null` and always exits 0. If `cargo` fails during the dependency-caching layer (crates.io network timeout, checksum mismatch, `pkg-config` not finding `libssl-dev`), the failure is completely invisible in build logs and the layer is cached as succeeded. The subsequent `RUN touch src/main.rs && cargo build --release` (line 14) will fail with a linking or compilation error, but the root cause from line 11 is already gone. Removing `2>/dev/null` allows the actual error to surface; the `|| true` alone is sufficient for cache-miss resilience.
-
-- OBSERVATION: `docker-compose.yml:109-113` — The analytics healthcheck is `CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3002/api/health')"`. This forks a full CPython interpreter for every probe. With `interval: 10s` the container launches ~8,640 Python processes per day purely for health probing. No `curl` or `wget` binary is installed in the analytics image (`Dockerfile` installs only `libgdal-dev`), so a lighter alternative requires a Dockerfile change (e.g., `RUN apt-get install -y --no-install-recommends curl`).
-
-- OBSERVATION: `docker-compose.yml:119-135` — The `gateway` service (Caddy) has no `healthcheck:` block. If Caddy fails to start (Caddyfile syntax error evaluated at runtime, port conflict) or crashes post-startup, Docker marks the container running but with `health: unknown`. No other service declares `condition: service_healthy` on `gateway`, so upstream services continue to be marked healthy while the entry point is down. A `test: ["CMD", "wget", "-qO-", "http://localhost:8080"]` with appropriate interval would surface Caddy failures automatically.
-
-- OBSERVATION: `geointellisense-analytics/.dockerignore:1` — The entry `__pycache__` without a `**/` prefix matches only the top-level `__pycache__/` directory in the build context. The generated bytecode directories inside the package — `app/__pycache__/`, `app/routes/__pycache__/`, `app/clients/__pycache__/`, `app/ml/__pycache__/` — are not excluded. On developer machines where those directories exist, stale `.pyc` files for the host Python version are copied into the image via `COPY . .` (Dockerfile line 14) and may shadow the correct bytecode generated inside the container. The fix is `**/__pycache__` (and `**/*.pyc`).
-
-- OBSERVATION: `docker-compose.yml` — No `deploy.resources.limits` (or legacy `mem_limit`) is configured for any service. The analytics service trains a `GradientBoostingRegressor` (`aqi_model.py:223`) with `n_estimators=200` on up to 730 days of hourly sensor readings; peak RSS during training is unbounded. If the container OOM-kills mid-training (exit code 137), `_train_status` is left permanently as `{"state": "running"}` — no `finally` block resets it in `predict.py:_run_training` — and subsequent `POST /api/predict/train` calls return 409 until restart.
-
-**Proposed actions:**
-- Change `docker-compose.yml:4` from `timescale/timescaledb-ha:pg16` to `timescale/timescaledb:latest-pg16` — not in top 10 (M/L, score 2.0; newer first-seen than item 10)
-- Convert analytics Dockerfile to multi-stage: builder installs `libgdal-dev` + builds wheels; runtime stage copies only site-packages and adds `USER 1000:1000` — not in top 10 (M/L, score 2.0; newer first-seen than item 10)
-- Remove `2>/dev/null` from `geointellisense-ingestion/Dockerfile:11`; keep `|| true` — not in top 10 (L/L, score 1.0)
-- Add `RUN apt-get install -y --no-install-recommends curl` to analytics Dockerfile and replace Python urllib healthcheck with `curl -sf http://localhost:3002/api/health` — not in top 10 (L/L, score 1.0)
-- Add `healthcheck:` block to `gateway` service in `docker-compose.yml` — not in top 10 (M/L, score 2.0; newer first-seen than item 10)
-- Fix analytics `.dockerignore` to use `**/__pycache__` and `**/*.pyc` — not in top 10 (L/L, score 1.0)
-- Add `mem_limit: 2g` to analytics service and add `finally: _train_status = {"state": "failed"}` in `predict.py:_run_training` — not in top 10 (M/L, score 2.0; newer first-seen than item 10)
-
 ## 📚 Archive (one line per past run)
+- Run #12 (2026-05-28) — Lens: Deployment / Docker — 7 findings — 0 promoted to Active
 - Run #11 (2026-05-28) — Lens: Docs — 10 findings — 0 promoted to Active
 - Run #10 (2026-05-28) — Lens: Observability — 6 findings — 2 promoted to Active
 - Run #9 (2026-05-28) — Lens: Security — 8 findings — 2 promoted to Active
@@ -135,3 +128,4 @@ Last run: #14 — Lens: Competitive scan (web)
 - Run #12: lens 12 (Deployment / Docker) — findings added
 - Run #13: lens 13 (LLM integration quality) — findings added
 - Run #14: lens 14 (Competitive scan) — findings added
+- Run #15: lens 15 (Live-time claim audit) — findings added
