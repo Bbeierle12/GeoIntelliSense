@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T17:15:00Z
-Last run: #13 — Lens: LLM integration quality
+Last updated: 2026-05-28T18:20:00Z
+Last run: #14 — Lens: Competitive scan (web)
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,35 @@ Last run: #13 — Lens: LLM integration quality
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #14 — 2026-05-28 — Lens: Competitive scan (web)
+**Scope:** Web research (Exa search + fetch) on AQI+AI competitors; codebase read via `git show origin/main` of `geointellisense-ingestion/src/aqi.rs`, `purpleair.rs`, `usgs.rs`, `geointellisense-analytics/app/routes/` directory listing, `app/routes/fires.py`, `enviroscreen.py`, `calgem.py`, `cropscape.py`, `traffic.py`; cross-referenced against prior run findings in Active Recommendations.
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-ingestion/src/aqi.rs:53-87` — The fallback AQI source is 11 hardcoded mock stations in Fresno, Kings, Tulare, and Kern counties when `PURPLEAIR_API_KEY` is absent. Meanwhile SJVAir (`sjvair.com`), operated by the Central California Asthma Collaborative, exposes a public Django REST API (`github.com/SJVAir/sjvair.com`, last pushed 2026-03-31) that aggregates PurpleAir + AirGradient + AirNow + CARB AQview (AB 617 regulatory-grade) across all 8 SJV counties (San Joaquin, Stanislaus, Merced, Madera, Fresno, Tulare, Kings, Kern). Adding a `SjvAirClient` in Rust alongside the existing `purpleair.rs` pattern would add 100+ reference-grade and community monitors, dramatically improving geographic and data-quality coverage with no API key cost. This is the most directly relevant missed data source for a product focused on the San Joaquin Valley.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/` (30 routes listed) — No route provides CSV, JSON, or PDF data export. Competitors Airly Data Platform, Aethair/Environet, MySensees, and Airqoon LensAI consider data export (CSV/PDF/Excel) table-stakes for environmental monitoring. The historical AQI data is already persisted in TimescaleDB via `geointellisense-ingestion/src/db/`. A `GET /api/export/aqi?format=csv&start=YYYY-MM-DD&end=YYYY-MM-DD` endpoint using FastAPI `StreamingResponse` + Python's `csv.writer` would require ~50 lines of new code and no new dependencies. For SJV environmental justice organizations, health researchers, and regulatory agencies, downloadable data is a prerequisite for engagement.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/` — No burn-day status route exists despite "Check Before You Burn" (CBYB) being the single most-used feature of the Valley Air District's competing official app (`play.google.com/store/apps/details?id=com.valleyair.ValleyAir`). California Health & Safety Code §41505.5 mandates the SJVAPCD to publish a daily residential wood-burning advisory for each of the 8 SJV counties during the November–February inversion season. During winter, wood smoke is the dominant PM2.5 source in the valley. The advisory is available from `valleyair.org` as a parseable web endpoint; a `app/routes/burn_status.py` that fetches and caches the daily per-county flag would be ~40-60 lines. This is a direct SJV-specific feature gap vs. the incumbent authority app.
+
+- OBSERVATION: SJVAir integrates the **TEMPO NASA geostationary satellite** (hourly ozone, NO₂, and formaldehyde measurements across North America from geostationary orbit) and **NOAA HMS Fire & Smoke** (smoke plume extent polygons derived from GOES satellites). GeoIntelliSense uses NASA FIRMS for fire hotpoints (`geointellisense-ingestion/src/main.rs`, `app/routes/fires.py`) but FIRMS produces fire detection points, not smoke plume polygons. HMS smoke plume data (NOAA HMS: `satepsanone.nesdis.noaa.gov`) would indicate which SJV communities are downwind of smoke — a different and complementary signal from fire hotpoints. TEMPO NO₂ provides continuous inter-station coverage the PurpleAir network cannot. Neither is ingested.
+
+- OBSERVATION: `geointellisense-analytics/app/claude.py:52` — `get_system_with_live_context(base_system)` injects sensor data (AQI readings, earthquake, fire, water, forecast) but no user-health context. Competitors EnviroCopilot, NowPatient, and AirTrack personalize AQI alerts and recommendations by user health conditions (asthma, COPD, cardiovascular disease, allergies). GeoIntelliSense has no user profile endpoint, no health condition field in any Pydantic model, and no health-context injection into any Claude call. Since Claude is already interpreting AQI data, adding a profile requires: (a) a `POST /api/user/profile` CRUD endpoint storing `{conditions, age_group, sensitive}` in Redis alongside session history, and (b) prepending that context to `SJV_SYSTEM` in `get_system_with_live_context()`. The AI response quality for at-risk SJV residents (asthma prevalence in SJV is among the highest in the US) would substantially improve.
+
+- OBSERVATION: `app/routes/calgem.py`, `app/routes/cropscape.py`, `app/routes/traffic.py`, `app/routes/fires.py` — GeoIntelliSense ingests data from four distinct pollution source categories (oil/gas, agriculture, traffic, fires) but exposes them only as isolated data routes with no source-attribution layer. EcoPulse AI (a competing platform) performs real-time root-cause attribution quantifying traffic vs. industry contributions to current AQI, and Aclima (September 2024 CARB $27M Statewide Mobile Monitoring Initiative contract) maps block-level source contributions across disadvantaged communities. GeoIntelliSense's data assets (CalGEM, CropScape, traffic, FIRMS) are all present but never cross-correlated against current AQI readings to produce a "% attributed to each source" metric. This requires either dispersion modeling or a trained attribution ML model and is a longer-term effort.
+
+- OBSERVATION: SJVAir, the Valley Air District app (official SJVAPCD), AirNow (EPA push notification update, Dec 2024), and IQAir all provide threshold-triggered push or email notifications — considered baseline for any air quality product. GeoIntelliSense has no notification infrastructure: no `/api/subscriptions` endpoint, no email integration (SMTP/SendGrid), no FCM/APNs push, and no TimescaleDB trigger or background worker for threshold detection. The Valley Air District app specifically features `Receive alerts during unique air quality episodes` as a core feature; for SJV residents who face sudden smoke events, inversions, and agricultural burns, reactive "check the app" UX is a significant disadvantage.
+
+**Proposed actions:**
+- Add `SjvAirClient` Rust struct in `geointellisense-ingestion/src/sjvair.rs` following the pattern of `purpleair.rs`, calling `api.sjvair.com` to ingest regulatory + community monitor data for all 8 SJV counties — H/L, score 3.0; ties with existing top-10 rows (all H/L, first-seen #1-13); does not displace
+- Add `GET /api/export/aqi` route in `geointellisense-analytics/app/routes/` with `format=csv` and date-range params, using `StreamingResponse` and `csv.writer` — H/L, score 3.0; ties; does not displace
+- Add `app/routes/burn_status.py` fetching SJVAPCD CBYB daily per-county advisory from `valleyair.org`, cached in Redis with 6-hour TTL — H/L, score 3.0; ties; does not displace
+- Add NOAA HMS smoke plume polygon ingestion route (Python `app/routes/hms_smoke.py`) to complement existing FIRMS fire-point data — M/L, score 2.0
+- Add user health profile CRUD (`POST /api/user/profile`, `GET /api/user/profile`) storing conditions in Redis and injecting into `get_system_with_live_context()` — H/M, score 1.5
+- Ingest TEMPO satellite NO₂/O₃ data via NASA Earthdata API into a new analytics route — M/M, score 1.0
+- Implement pollution source attribution engine correlating CalGEM + CropScape + traffic + FIRMS vs. real-time AQI — M/H, score 0.67
+- Implement threshold-triggered push/email notifications (Redis Pub/Sub → worker → SendGrid) — H/H, score 1.0
+
 ### Run #13 — 2026-05-28 — Lens: LLM integration quality
 **Scope:** `geointellisense-analytics/app/claude.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/grounded_search.py`, `app/routes/grounded_maps.py`, `app/routes/low_latency.py`, `app/routes/predictive_analysis.py`, `app/routes/weather_forecast.py`, `services/aiService.ts`, `app/middleware.py`, `requirements.txt`
 
@@ -78,41 +107,9 @@ Last run: #13 — Lens: LLM integration quality
 - Fix analytics `.dockerignore` to use `**/__pycache__` and `**/*.pyc` — not in top 10 (L/L, score 1.0)
 - Add `mem_limit: 2g` to analytics service and add `finally: _train_status = {"state": "failed"}` in `predict.py:_run_training` — not in top 10 (M/L, score 2.0; newer first-seen than item 10)
 
-### Run #11 — 2026-05-28 — Lens: Docs
-**Scope:** `README.md`, `IMPLEMENTATION_STATUS.md`, `.env.local.example`, `docker-compose.yml`; `geointellisense-analytics/app/config.py`, `app/main.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/grounded_search.py`, `app/routes/admin.py`; `geointellisense-ingestion/src/aqi.rs`, `src/broadcast.rs`, `src/config.rs`, `src/main.rs`; `services/aiService.ts`; `components/dashboard/widgets/InversionWidget.tsx`, `WaterWidget.tsx`, `WeatherWidget.tsx`.
-
-**Findings:**
-
-- OBSERVATION: `README.md:64` — The Architecture section states "**Backend** (Express): Runs on `http://localhost:3001`." The actual production stack has no Express server in Docker: the Rust ingestion service listens on port 3001, a Python FastAPI analytics service on port 3002, and a Caddy API gateway on port 8080. The Express `server/index.js` is a dev-only proxy and does not appear in `docker-compose.yml` at all. A new contributor following the README will be confused about which backend serves which API routes. The "How to Run" section (`npm run dev:full`) also never mentions Docker Compose, which is the only way to start the Rust, Python, and database services.
-
-- OBSERVATION: `.env.local.example` is materially incomplete. It documents only 5 variables (`ANTHROPIC_API_KEY`, `PURPLEAIR_API_KEY`, `GOOGLE_MAPS_API_KEY`, `RUST_SERVICE_URL`, `PYTHON_SERVICE_URL`). The `docker-compose.yml` ingestion service block additionally requires `ADMIN_TOKEN`, `PURPLEAIR_INTERVAL_SECS`, and `BROADCAST_INTERVAL_SECS` (and the DB/Redis port variables). The analytics `config.py` (`Settings` class) reads `EPA_AQS_EMAIL`, `EPA_AQS_KEY`, `AIRNOW_API_KEY`, `NOAA_CDO_TOKEN`, `NASA_FIRMS_KEY`, and `CENSUS_API_KEY` — none of which appear in `.env.local.example`. Without these keys, the 12 Python API clients that lack retry logic (see Run #8) silently return empty results, but there is no documentation telling a deployer which keys are needed for which data source.
-
-- OBSERVATION: `docker-compose.yml` analytics service block passes `GOOGLE_MAPS_API_KEY`, `DEM_DATA_DIR`, `LANDSAT_DATA_DIR`, and `MODEL_DIR` as environment variables into the container, but `geointellisense-analytics/app/config.py` (`Settings` class) does not declare any of these four fields. They are never read by the analytics service. Either they are vestigial from an earlier implementation, are silently consumed by child processes, or the `config.py` `Settings` class needs to be updated to reflect them.
-
-- OBSERVATION: `IMPLEMENTATION_STATUS.md` is stale in two ways. (1) Phase 1.1 is marked "Secure API Key Management ✅ COMPLETED" and states the Maps key is "Protected via backend endpoint `/api/maps-config`," but this endpoint remains unauthenticated (Open in Active Recommendation #6, found Run #9). (2) The "How to Run" section instructs users to create a `.env` with only `ANTHROPIC_API_KEY` and `GOOGLE_MAPS_API_KEY`, which is insufficient for the Docker stack: the database, Redis, ingestion service, and analytics service each require additional variables documented nowhere in the file.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/chat.py:23` — `async def chat()`, the primary AI endpoint, has no docstring. It accepts `ChatRequest` (with fields `message: str` and `session_id: str | None`), performs auth + rate-limit checks, runs up to 5 Anthropic tool-call rounds, and returns `{"text": ..., "sessionId": ...}` — none of which is stated in the function signature, decorator, or body. `grounded_search.py:24` (`async def grounded_search()`) and `deep_analysis.py:18` (`async def deep_analysis()`) share the same gap. Together these three handle all AI-facing traffic but have zero inline documentation of auth requirements, input validation, return shape, or error codes.
-
-- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs` — Public type aliases and functions lack `///` doc comments. `AqiBroadcast` (line 13), `LiveCache` (line 16), and `EarthquakeCache` (line 20) are type aliases with no explanation of lock semantics or update frequency. `pub fn create() -> AqiBroadcast` (line 33) has no doc; `pub fn spawn_ticker` (line 38) takes 7 parameters with no `///` explaining what each does or what task it spawns. Only `spawn_earthquake_poller` (line 133) has a two-line doc comment.
-
-- OBSERVATION: `geointellisense-ingestion/src/aqi.rs` — Five public functions have no `///` doc comments: `stations()` (line 53), `aqi_category()` (line 88), `generate_readings()` (line 99), `generate_history()` (line 138), and `round2()` (line 164). These are the only mock-data generators for the entire ingestion service; when `PURPLEAIR_API_KEY` is absent every SSE broadcast uses their output, but there is no inline documentation of the AQI formula, the bounding box, the mock station list, or the history generation algorithm.
-
-- OBSERVATION: `services/aiService.ts` — Seven exported async functions (lines 8, 30, 52, 74, 96, 118, 154) have no JSDoc. There is no inline documentation of which backend endpoint each function calls, what `x-api-key` header value is expected, what the resolved Promise shape is, or what exceptions are thrown on 401/429/500 responses.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/admin.py:11` — `def _check_admin(token: str | None) -> JSONResponse | None:` has no docstring. This security-critical helper returns a 403/401 `JSONResponse` on failure or `None` on success, but nothing in the function explains this sentinel-return contract.
-
-- OBSERVATION: `geointellisense-ingestion/src/config.rs` — `Config` struct and `pub fn from_env() -> Self` have no `///` doc comments. `config.rs` is the single source of truth for every environment variable consumed by the ingestion service, but none of the fields documents its default value, valid range, or effect. `earthquake_interval_secs` (default 300 s) and `broadcast_interval_secs` (default 5 s) are performance-sensitive tunables that affect SSE client freshness; their operational implications are undocumented.
-
-**Proposed actions:**
-- Update `README.md:37-64` to replace Express/3001 with Rust ingestion/3001 + Python FastAPI/3002 + Caddy/8080; add a "Docker Compose" section — not in top 10 (M/L, score 2.0)
-- Extend `.env.local.example` to include all analytics API keys and ingestion tunables with comments — not in top 10 (M/L, score 2.0)
-- Audit and remove or document `GOOGLE_MAPS_API_KEY`, `DEM_DATA_DIR`, `LANDSAT_DATA_DIR`, `MODEL_DIR` in `docker-compose.yml` analytics env block — not in top 10 (M/L, score 2.0)
-- Update `IMPLEMENTATION_STATUS.md` to reflect open security items — not in top 10 (L/L, score 1.0)
-- Add docstrings to `chat.py:23`, `grounded_search.py:24`, `deep_analysis.py:18` route handlers — not in top 10 (L/L, score 1.0)
-- Add `///` doc comments to `broadcast.rs:create`, `spawn_ticker`, and type aliases — not in top 10 (L/L, score 1.0)
-- Add JSDoc to all seven `services/aiService.ts` exports — not in top 10 (L/L, score 1.0)
-
 ## 📚 Archive (one line per past run)
+- Run #11 (2026-05-28) — Lens: Docs — 10 findings — 0 promoted to Active
+- Run #10 (2026-05-28) — Lens: Observability — 6 findings — 2 promoted to Active
 - Run #9 (2026-05-28) — Lens: Security — 8 findings — 2 promoted to Active
 - Run #8 (2026-05-28) — Lens: Data pipeline integrity — 7 findings — 2 promoted to Active
 - Run #7 (2026-05-28) — Lens: UX / UI flaws — 8 findings — 1 promoted to Active
@@ -137,3 +134,4 @@ Last run: #13 — Lens: LLM integration quality
 - Run #11: lens 11 (Docs) — findings added
 - Run #12: lens 12 (Deployment / Docker) — findings added
 - Run #13: lens 13 (LLM integration quality) — findings added
+- Run #14: lens 14 (Competitive scan) — findings added
