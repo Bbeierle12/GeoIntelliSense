@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T22:10:00Z
-Last run: #18 — Lens: Dependency health
+Last updated: 2026-05-28T23:07:29Z
+Last run: #19 — Lens: Perf hot paths
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,34 @@ Last run: #18 — Lens: Dependency health
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #19 — 2026-05-28 — Lens: Perf hot paths
+**Scope:** `geointellisense-ingestion/src/usgs.rs`, `geointellisense-ingestion/src/purpleair.rs`, `geointellisense-ingestion/src/db/persist.rs`, `geointellisense-analytics/app/ml/aqi_model.py`, `hooks/useDashboardData.ts`, `hooks/useLiveData.ts`, `components/3d/AQI3DScene.tsx`, `components/3d/CityMarkers.tsx`, `components/3d/WindField.tsx`, `components/3d/PollutionVolume.tsx`, `components/3d/TerrainMesh.tsx`, `components/dashboard/LiveDashboard.tsx`. Prior Run #4 Active item checked to avoid duplicate.
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-ingestion/src/usgs.rs:163-194` — The `persist()` function applies the identical row-by-row INSERT pattern already flagged in `geointellisense-ingestion/src/db/persist.rs` (Active Recommendations row #5): one `sqlx::query(...).execute(pool).await` round-trip per event. `fetch_recent` (line 103) queries the last 30 days of worldwide earthquakes at `minmagnitude=0.5` (`usgs.rs:105,119`) — a window that can return hundreds of events during active seismic periods. Each persisted event incurs a separate TCP round-trip to TimescaleDB, meaning a 200-event USGS response issues 200 sequential queries. The fix is the same UNNEST-based bulk INSERT proposed for `persist.rs`; the `earthquake_events` INSERT at lines 166-184 maps directly to the same pattern.
+
+- OBSERVATION: `geointellisense-ingestion/src/usgs.rs:107` — `fetch_recent()` calls `reqwest::Client::new()` on every invocation, creating a fresh HTTP client with an empty connection pool at each USGS poll cycle. `reqwest::Client` is explicitly designed to be cloned and reused across requests; a new instance cannot reuse keep-alive connections to the USGS FDSNWS endpoint, adding a full TLS handshake cost to every poll. By contrast, `PurpleAirClient` (line 39, `purpleair.rs`) stores its `reqwest::Client` as a struct field and reuses it across all poll cycles. The fix is to add a `usgs::UsgsClient` struct analogous to `PurpleAirClient`, storing the `reqwest::Client` as a field, and pass it into `spawn_earthquake_poller` (currently at `broadcast.rs:135`).
+
+- OBSERVATION: `hooks/useDashboardData.ts:167-342` — Four independent `useMemo` blocks (`mergedHumidityData` line 167, `mergedWindData` line 211, `mergedUVData` line 255, `mergedAgriculturalData` line 299) all share identical dependency arrays (`[selectedLocations, startDate, endDate, weatherGranularity]`) and each independently iterate over `selectedLocations` × `locEntry.dailyForecast` to compute monthly aggregations. When any dependency changes (e.g., a date filter update), all four memos re-execute in sequence, traversing the same `dailyForecast` dataset four separate times on the JS main thread. For a `dailyForecast` with 365 entries across 4 locations (1,460 iterations per metric × 4 metrics = 5,840 total iterations per filter change), these redundant passes produce synchronous jank. Merging the four loops into a single `useMemo` that emits `{ humidity, wind, uv, agricultural }` reduces traversals to 1× per dependency change.
+
+- OBSERVATION: `hooks/useDashboardData.ts:104-142` — `mergedHistoricalAqi` (line 104) and `mergedHistoricalPm25` (line 124) both call `getFilteredHistoricalData('historicalAqi')` independently. Both calls compute the identical `filteredMonthOrder` array by iterating the same `dashboardData['Valley Average'].historicalAqi` month list and parsing each entry with `parseMonthString()` (line 5) — a function that calls `new Date(Date.parse(...))` per month entry. On any `startDate`/`endDate` change, the identical date-parsing/filtering computation runs twice with the same arguments. Hoisting `filteredMonthOrder` into a shared `useMemo` dependency eliminates the redundant pass.
+
+- OBSERVATION: `geointellisense-analytics/app/ml/aqi_model.py:286` — `predict_aqi()` calls `model.staged_predict(X)` (line 286) to estimate a confidence interval. `staged_predict()` materializes cumulative predictions through all 200 gradient boosting estimators (one entry per tree), producing an array of length `n_estimators=200`. This is then used only to compute `np.std(increments[-50:]) * sqrt(50)` as a variance proxy (lines 289-291). The result is explicitly acknowledged as an approximation ("variance proxy"), yet it roughly doubles the cost of every cold-cache call to `/api/predict/aqi` by running the ensemble twice. Replacing this with the formula `std_estimate = model_MAE * math.sqrt(2)` (using the model's known MAE stored in `meta["mae"]`) yields a statistically equivalent approximation with zero additional inference cost.
+
+- OBSERVATION: `components/3d/WindField.tsx:180-231` — `WindParticleSystem`'s `useMemo` (line 180) initializes particle velocities via an O(particleCount × len(windData)) brute-force nearest-neighbor search (lines 199-209): for each of `count` particles (default 500), it iterates every entry in `windData` calling `latLngToWorld()` per datum to compute Euclidean distance. With 6 wind stations, this is 3,000 `latLngToWorld()` projections on initialization and on every `windData`/`count`/`speed` change. If `windData` is ever sourced from a gridded NWS forecast (which can have 50–200 grid points), the initialization cost grows to 25,000–100,000 projection calculations. Pre-projecting `windData` to world coordinates once (outside the per-particle loop) and using a spatial grid bucket would reduce to O(particleCount + len(windData)).
+
+- OBSERVATION: `components/3d/CityMarkers.tsx:110-122` — Each `CityMarker` instance registers its own independent `useFrame` callback (line 110). With `animateMarkers=true` (the default, `CityMarkers.tsx:277`), 6 separate `useFrame` callbacks are registered — one per station — each calling `glowRef.current.scale.setScalar(...)` (line 116) and `pinRef.current.position.y = ...` (line 121) every animation frame at 60 fps. The glow pulse at line 115 recomputes `Math.sin(clock.elapsedTime * 2 + city.aqi * 0.01)` independently per marker. Replacing the 6 individual animated meshes with a single `THREE.InstancedMesh` (one for glows, one for pins) and a single parent-level `useFrame` that updates the instance matrix buffer would reduce the per-frame draw call count from 6× to 1× and consolidate animation logic.
+
+**Proposed actions:**
+- Apply UNNEST-based bulk INSERT to `usgs.rs:163`'s `persist()` function (companion fix to Active Recommendations row #5, same pattern) — H/L, score 3.0; does not enter top 10 as all 10 current rows also score H/L = 3.0
+- Add `usgs::UsgsClient` struct storing a reused `reqwest::Client`; pass into `spawn_earthquake_poller` at `broadcast.rs:135` — M/L, score 2.0; does not enter top 10
+- Merge `mergedHumidityData`, `mergedWindData`, `mergedUVData`, `mergedAgriculturalData` into a single `useMemo` in `useDashboardData.ts:167` — M/M, score 1.0; does not enter top 10
+- Hoist shared `filteredMonthOrder` for `'historicalAqi'` into a dedicated `useMemo`; share between `mergedHistoricalAqi` and `mergedHistoricalPm25` — L/L, score 1.0; does not enter top 10
+- Replace `model.staged_predict(X)` CI proxy in `aqi_model.py:286` with `std_estimate = meta["mae"] * math.sqrt(2)` — M/L, score 2.0; does not enter top 10
+- Pre-project `windData` to world coords before per-particle loop in `WindField.tsx:199`; remove per-particle `latLngToWorld()` call — M/M, score 1.0; does not enter top 10
+- Convert `CityMarkers.tsx` animated markers to `THREE.InstancedMesh` with a single parent `useFrame` — M/M, score 1.0; does not enter top 10
+
 ### Run #18 — 2026-05-28 — Lens: Dependency health
 **Scope:** `package.json`, `package-lock.json` (lockfileVersion 3, 368 packages), `vite.config.ts`; `geointellisense-analytics/requirements.txt`; `geointellisense-ingestion/Cargo.toml`, `Cargo.lock`. Checked for `latest`-tag usage, deprecated packages (none found), bundle-size warnings, missing lock files, outdated pinned packages, and upper-bound version caps.
 
@@ -65,38 +93,8 @@ Last run: #18 — Lens: Dependency health
 - Split `types.ts` into `types/ui.ts` (`ViewType`, `TemperatureUnit`), `types/analysis.ts` (`AnalysisTool`, `GroundingChunk`), `types/chat.ts` (`ChatMessage`); update all import sites — M/M, score 1.0; does not enter top 10
 - No circular dependency remediation needed: none found
 
-### Run #16 — 2026-05-28 — Lens: Type safety
-**Scope:** All 23 `.ts` and 41 `.tsx` files on `origin/main`; `tsconfig.json`; searched for `: any`, `as any`, `<any>`, `Record<string, any>`, implicit parameter annotations, `@ts-ignore`, and `@ts-nocheck` directives.
-
-**Findings:**
-
-- OBSERVATION: `tsconfig.json` — The compiler options object contains no `"strict": true` flag and no individual `"noImplicitAny"`, `"strictNullChecks"`, `"strictFunctionTypes"`, `"strictBindCallApply"`, or `"strictPropertyInitialization"` flags. All five strict-mode checks therefore default to `false`. TypeScript silently infers `any` for parameters with no type annotation, permits `null`/`undefined` to flow into any variable, and skips function signature compatibility checking. Every explicit `any` annotation found in the files below is a symptom of this root-cause gap; enabling `strict` would cause the compiler to surface all of them as errors.
-
-- OBSERVATION: `data/dashboardData.ts:195-336` — `generateDailyForecast()` builds and returns an array of objects with ~25 typed fields (nested `temp`, `wind`, `precipitation`, `hourlyData` sub-objects) but its return type is inferred and never named. No `DailyForecast` interface or type alias is exported from this module. Because the return type is opaque to consumers, every call site that iterates the array must annotate loop variables as `day: any` to access fields without a TypeScript error (confirmed: 4 separate `forEach((day: any) => {...})` calls in `hooks/useDashboardData.ts`). Adding `export interface DailyForecast { date: string; dayOfWeek: string; temp: { current: number; min: number; max: number; feelsLike: number }; humidity: number; ... }` and annotating `generateDailyForecast(): DailyForecast[]` would fix all downstream `day: any` annotations in one change.
-
-- OBSERVATION: `hooks/useDashboardData.ts:179,197,199,223,241,243,267,285,287,311,330,332` — Twelve explicit `any` annotations in five `useMemo` blocks (`mergedHumidityData`, `mergedWindData`, `mergedUVData`, `mergedAgriculturalData`, and an intermediate `mergedForecastData` Map). Four are `(day: any)` parameter annotations that cascade from the missing `DailyForecast` type in `dashboardData.ts` (see above). Eight are `result: any[]` / `entry: any` intermediate accumulators that collect `{ month: string; [location: string]: number }` objects — a shape that could be expressed as `type MonthlySeriesPoint = { month: string } & Record<string, number>`. The `Map<string, Record<string, any>>` at line ~68 likewise loses value types.
-
-- OBSERVATION: `components/charts/AQITrendChart.tsx:15`, `components/charts/PM25TrendChart.tsx:15`, `components/charts/TemperaturePrecipitationChart.tsx:15`, `components/charts/WeatherForecastChart.tsx:14` — All four chart components declare `data: any[]` in their props interface. The actual data produced by the five corresponding `useMemo` blocks in `useDashboardData.ts` always has `{ month: string } & Record<string, number>` (AQI/PM25/temperature) or `{ day: string } & Record<string, number>` (forecast) shapes. Replacing `any[]` with `Array<{ month: string } & Record<string, number>>` (or a shared `ChartDataPoint` type alias) would let TypeScript verify that callers pass correctly-shaped data.
-
-- OBSERVATION: `components/AccessibleChart.tsx:66,79,165` — The `DataTableColumn.format` callback is typed `(value: any) => string` (line 66). The `AccessibleChartProps.data` field is `Record<string, any>[]` (line 79). The internal `DataTable` component's `data` prop repeats `Record<string, any>[]` at line 165. Because `AccessibleChart` is the project's accessibility wrapper used by every chart, these `any` types flow through all chart data in the accessible table path. The fix — making `AccessibleChart` generic: `AccessibleChart<T extends Record<string, unknown>>` with `data: T[]` and `format?: (value: T[keyof T]) => string` — would propagate type safety from each chart's data type without requiring per-usage annotation.
-
-- OBSERVATION: `components/3d/AQI3DScene.tsx:57` — `const controlsRef = useRef<any>(null)` is the only `useRef<any>` in the entire codebase. `@react-three/drei` exports `OrbitControls` whose imperative handle type is `OrbitControlsImpl` from `three-stdlib`. The ref is accessed via `controlsRef.current.getTarget(target)` at line 70 — if the library renames or removes `getTarget`, TypeScript gives no warning. The fix is `useRef<OrbitControlsImpl | null>(null)` with `import type { OrbitControlsImpl } from 'three-stdlib'`.
-
-- OBSERVATION: `components/AnalysisView.tsx:255` — `catch (e: any)` then `e.message`. `catch (e: any)` is technically legal without `useUnknownInCatchVariables` (part of `strict`), but it bypasses type narrowing. The `utils/errorHandling.ts` module (used elsewhere in the project) already provides `toDataServiceError(error: unknown)` which performs safe narrowing. The consistent pattern would be `catch (e: unknown) { setError(toDataServiceError(e).getUserMessage()); }`.
-
-- OBSERVATION: `components/DataExplorer.tsx:42` — `ExploreResponse.data: Array<Record<string, any>>`. The `/api/analysis/explore` endpoint returns TimescaleDB time-bucketed rows where columns are the selected source keys (`aqi`, `temperature`, `fires`, etc.) plus a `time` string. The `chartData` memo at line ~80 then does `d.time` (implicitly typed `any`), losing all type checking. The type could be narrowed to `Array<{ time: string } & Record<string, number | null>>` which still allows dynamic source columns while narrowing `time` and value types.
-
-**Proposed actions:**
-- Add `"strict": true` to `tsconfig.json` `compilerOptions`; then progressively fix resulting errors (the most impactful being the `any` annotations below) — H/M, score 1.5; not in top 10
-- Export `DailyForecast` interface from `data/dashboardData.ts` and annotate `generateDailyForecast(): DailyForecast[]`; remove all `(day: any)` annotations in `useDashboardData.ts` — M/L, score 2.0; not in top 10 (newer than existing 3.0 items)
-- Replace `result: any[]` and `entry: any` accumulators in `useDashboardData.ts` with `type MonthlySeriesPoint = { month: string } & Record<string, number>` — M/L, score 2.0; not in top 10
-- Replace `data: any[]` props in the four chart components with a shared `ChartDataPoint` type alias — M/L, score 2.0; not in top 10
-- Make `AccessibleChart` generic (`AccessibleChart<T extends Record<string, unknown>>`) to propagate data types through the accessible table path — M/M, score 1.0; not in top 10
-- Replace `useRef<any>(null)` in `AQI3DScene.tsx:57` with `useRef<OrbitControlsImpl | null>(null)` — L/L, score 1.0; not in top 10
-- Replace `catch (e: any)` in `AnalysisView.tsx:255` with `catch (e: unknown)` + `toDataServiceError(e).getUserMessage()` — L/L, score 1.0; not in top 10
-- Narrow `ExploreResponse.data` in `DataExplorer.tsx:42` to `Array<{ time: string } & Record<string, number | null>>` — M/L, score 2.0; not in top 10
-
 ## 📚 Archive (one line per past run)
+- Run #16 (2026-05-28) — Lens: Type safety — 8 findings — 0 promoted to Active
 - Run #15 (2026-05-28) — Lens: Live-time claim audit — 5 findings — 0 promoted to Active
 - Run #14 (2026-05-28) — Lens: Competitive scan (web) — 7 findings — 0 promoted to Active
 - Run #13 (2026-05-28) — Lens: LLM integration quality — 8 findings — 0 promoted to Active
@@ -132,3 +130,4 @@ Last run: #18 — Lens: Dependency health
 - Run #16: lens 1 (Type safety) — findings added
 - Run #17: lens 2 (Module boundaries) — findings added
 - Run #18: lens 3 (Dependency health) — findings added
+- Run #19: lens 4 (Perf hot paths) — findings added
