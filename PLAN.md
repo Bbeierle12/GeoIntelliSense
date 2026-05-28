@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T12:30:00Z
-Last run: #8 — Lens: Data pipeline integrity
+Last updated: 2026-05-28T13:10:00Z
+Last run: #9 — Lens: Security
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -10,13 +10,44 @@ Last run: #8 — Lens: Data pipeline integrity
 | 3 | Redis-down skips all PurpleAir/earthquake polling — default toggle to ON when Redis unavailable | Data pipeline | H | L | 8 | Open |
 | 4 | Propagate `sessionId` through chat calls in `aiService.ts` | TS↔Py contract | H | L | 6 | Open |
 | 5 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
-| 6 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
-| 7 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
-| 8 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
-| 9 | `quake_cache` is overwritten with empty `Vec` on USGS fetch error — preserve last-known state | Data pipeline | M | L | 8 | Open |
-| 10 | `fetch_sounding_850mb` never falls back to OAK station when VBG sounding is unavailable | Data pipeline | M | L | 8 | Open |
+| 6 | `GET /api/maps-config` exposes Google Maps API key to unauthenticated callers | Security | H | L | 9 | Open |
+| 7 | `POST /api/predict/train` is unauthenticated — any client can trigger expensive model retraining | Security | H | L | 9 | Open |
+| 8 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
+| 9 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
+| 10 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #9 — 2026-05-28 — Lens: Security
+**Scope:** `app/middleware.py`, `app/config.py`, `app/main.py`, `app/routes/admin.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/predict.py`, `app/routes/maps_config.py`, `app/routes/ai_context.py`, `app/routes/explore.py`, `app/claude.py`; `src/routes/admin.rs`, `src/config.rs`; `docker-compose.yml`; `Caddyfile`.
+
+**Findings:**
+
+- OBSERVATION: `app/routes/maps_config.py:11-12` — `GET /api/maps-config` returns `GOOGLE_MAPS_API_KEY` in plaintext JSON to any unauthenticated caller with no `check_ai_auth`, no rate limit, and no referrer restriction check. The Caddyfile routes all `/api/*` paths through the public gateway with no path-level restriction. Any browser or script can retrieve the API key and use the project's Maps quota/billing.
+
+- OBSERVATION: `app/routes/predict.py:start_training()` — `POST /api/predict/train` calls neither `check_ai_auth` nor `check_rate_limit`. An unauthenticated caller can repeatedly trigger background RandomForest retraining (full sensor-readings DB scan for up to 730 days). The 409 guard `if _train_task and not _train_task.done()` prevents concurrent runs but not sequential flooding: once the task completes, the endpoint immediately accepts the next training request.
+
+- OBSERVATION: `app/routes/chat.py:chat_reset()` and `new_session()` — `POST /api/chat/reset` and `POST /api/chat/session` carry no auth check and no rate limit. `chat_reset` accepts any `session_id` in the POST body and clears that session's history via `reset_session(session_id)`. A caller who discovers any valid UUID can silently erase another user's conversation context (IDOR). `chat/session` can be spammed to cycle through the 100-session LRU (evicting active sessions) without throttle.
+
+- OBSERVATION: `app/routes/ai_context.py:ai_context()` — `GET /api/ai/context` has no auth check. The endpoint assembles and returns the full internal live-data context (current AQI readings, NWS forecast, fire detections, earthquake events, USGS water levels, enviroscreen data) that is injected verbatim into AI system prompts. The docstring labels it "debugging and inspection," but it is publicly accessible through the Caddy gateway on the same `/api/*` passthrough rule.
+
+- OBSERVATION: `app/main.py:63-70` — In dev mode (`settings.admin_token` is empty), `_allowed_origins = ["*"]` while `allow_credentials=True` remains set unconditionally. FastAPI/Starlette `CORSMiddleware` either raises `ValueError: Cannot use allow_credentials=True with wildcard allow_origins` (crashing the dev server at startup) or silently drops the `Access-Control-Allow-Credentials` header, breaking auth-header sharing. The intent — unrestricted dev access — is not achieved; the fix is `allow_credentials=False` when the origin list is `["*"]`.
+
+- OBSERVATION: `app/middleware.py:check_ai_auth():89` and `app/routes/admin.py:_check_admin():12-13` — Both functions compare provided tokens with configured secrets using Python's `==` operator (`if api_key == settings.admin_token:`, `if token != settings.admin_token:`). CPython `str.__eq__` short-circuits on first mismatch, so comparison time correlates with matching prefix length. The same issue exists in `src/routes/admin.rs:31` (`if provided != token`). The correct fixes are `hmac.compare_digest()` (Python stdlib) and `subtle::ConstantTimeEq` (Rust) to eliminate timing oracle risk.
+
+- OBSERVATION: `app/routes/chat.py`, `deep_analysis.py`, `grounded_search.py`, `predict.py` — All `except Exception as e` 500 handlers return `"details": str(e)` directly in the JSON response body. Exception messages from `asyncpg`, `anthropic`, and `httpx` can contain database DSN fragments, API key prefixes, internal file paths, and model identifiers. These details are forwarded to unauthenticated external callers, aiding stack fingerprinting.
+
+- OBSERVATION: `docker-compose.yml:Redis service` — Redis runs with no `--requirepass` option. The `geointellisense` bridge network is shared by all four containers (db, redis, ingestion, analytics). Any process running inside the analytics container — including code executed via the AI tool loop in `app/claude.py:execute_tool()`, which makes unrestricted `httpx` calls to internal service endpoints — can connect to `redis://redis:6379` without credentials and delete `geointelli:ratelimit:*` keys to bypass all AI-endpoint rate limiting.
+
+**Proposed actions:**
+- Add `check_ai_auth` to `GET /api/maps-config`; or restrict Maps API key by HTTP Referrer in Google Cloud Console → Active Recommendation #6
+- Add `check_ai_auth` + `check_rate_limit(..., "ai_deep")` to `POST /api/predict/train` → Active Recommendation #7
+- Add `check_ai_auth` to `GET /api/ai/context` — not in top 10 (M/L, score 2.0; ties items 8-10)
+- Fix dev-mode CORS: set `allow_credentials=False` when `allow_origins=["*"]` — not in top 10 (M/L, score 2.0)
+- Replace `==` / `!=` token comparisons with `hmac.compare_digest` (Python) and `subtle::ConstantTimeEq` (Rust) — not in top 10 (M/L, score 2.0)
+- Replace `"details": str(e)` with sanitized messages in all 500 handlers — not in top 10 (M/L, score 2.0)
+- Add `--requirepass` to Redis in docker-compose and update `REDIS_URL` env vars — not in top 10 (M/M, score 1.0)
+- Add rate limit to `POST /api/chat/reset` and `POST /api/chat/session` — not in top 10 (M/M, score 1.0)
+
 ### Run #8 — 2026-05-28 — Lens: Data pipeline integrity
 **Scope:** `geointellisense-ingestion/src/purpleair.rs`, `broadcast.rs`, `redis_cache.rs`, `usgs.rs`, `db/persist.rs`, `config.rs`; `geointellisense-analytics/app/http_client.py`; all 14 Python API clients (`airnow.py`, `epa_aqs.py`, `noaa_cdo.py`, `nws_sounding.py`, `calenviroscreen.py`, `calgem.py`, `caltrans.py`, `census.py`, `cropscape.py`, `dem.py`, `landsat.py`, `wqp.py`, `nasa_firms.py`, `usgs_water.py`); `app/source_toggles.py`; `app/routes/inversion.py`.
 
@@ -40,9 +71,9 @@ Last run: #8 — Lens: Data pipeline integrity
 - Add 3-attempt retry with exponential backoff to `PurpleAirClient::fetch_sensors` in `purpleair.rs`; add a `timeout(Duration::from_secs(30))` to the reqwest call → Active Recommendation #2
 - Change `broadcast.rs` source-toggle else-branch from `continue` to proceed with fetch (treat Redis-unavailable as "all sources enabled"), or cache the last-known toggle value in a local `HashMap` → Active Recommendation #3
 - Migrate `airnow.py` and `noaa_cdo.py` to `app.http_client.fetch` first (highest AQI impact); then remaining 10 clients — not in top 10 (H/H effort across 12 files, score 1.0)
-- Only overwrite `quake_cache` when `events` is non-empty in `broadcast.rs:spawn_earthquake_poller` → Active Recommendation #9
+- Only overwrite `quake_cache` when `events` is non-empty in `broadcast.rs:spawn_earthquake_poller` → (demoted from Active this run due to new H/L security items)
 - Add retry counter to NOAA CDO `429` handler; honour `Retry-After` header — not in top 10 (M/M, score 1.0)
-- Add OAK station fallback to `get_inversion_status()` when VBG returns all-None → Active Recommendation #10
+- Add OAK station fallback to `get_inversion_status()` when VBG returns all-None → (demoted from Active this run due to new H/L security items)
 - Replace `asyncio.get_event_loop().time()` with `asyncio.get_running_loop().time()` in `epa_aqs.py` — not in top 10 (L/L, score 1.0)
 
 ### Run #7 — 2026-05-28 — Lens: UX / UI flaws
@@ -76,35 +107,8 @@ Last run: #8 — Lens: Data pipeline integrity
 - Replace Tailwind CDN with `@tailwindcss/vite` — not in top 10 (M/M, score 1.0)
 - Replace emoji control hints with labelled SVG icons in `UIPanels.tsx:352-355` — not in top 10 (L/L)
 
-### Run #6 — 2026-05-28 — Lens: TS ↔ Python contract
-**Scope:** `types.ts`, `services/dataService.ts`, `services/aiService.ts`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`; Python routes `chat.py`, `grounded_search.py`, `grounded_maps.py`, `historical_aqi.py`, `historical_weather.py`, `predictive_analysis.py`, `weather_forecast.py`, `nws_forecast.py`, `predict.py`, `inversion.py`; Rust structs `aqi.rs` (`AqiReading`), `routes/aqi.rs` (`SnapshotResponse`); Python `clients/nws_sounding.py` (`InversionStatus.to_dict`, `_wrap_status`); Python `ml/aqi_model.py` (`predict_aqi`).
-
-**Findings:**
-
-- OBSERVATION: `services/aiService.ts:getChatResponse` — the function posts `{ message }` with no `session_id` field. Python `geointellisense-analytics/app/routes/chat.py:ChatRequest` accepts `session_id: str | None` and returns `{ "text": text, "sessionId": session_id }`. TypeScript only reads `data.text` and discards `sessionId`. Because `session_id` is never sent in subsequent calls, the Python handler calls `create_session()` on every request. The multi-turn session history that `append_to_session` / `get_session_history` manage is permanently lost between calls: every user message starts a fresh conversation with no prior context.
-
-- OBSERVATION: `hooks/useLiveData.ts:PredictionResult` — TypeScript declares `trainedAt: string` as a required field (line ~83). Python `geointellisense-analytics/app/ml/aqi_model.py:predict_aqi` does NOT include `trainedAt` in its return value. `trainedAt` is available in `get_model_status()` but is never forwarded by `/api/predict/aqi`. Any component that renders `result.trainedAt` receives `undefined` at runtime with no type error.
-
-- OBSERVATION: `hooks/useRealtimeAQI.ts` — the inline `aqi-update` event type (lines ~180-197) omits four fields that Rust `AqiReading` emits: `category`, `color`, `source`, and `rawSensorCount`. The 3D view cannot distinguish mock from live PurpleAir data and recomputes category/color locally in `colorScales.ts` instead of using the EPA-authoritative values from the Rust service.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/historical_weather.py` — every record includes `"totalPrecipitation": 0.0` unconditionally (commented placeholder). The mock fallback path generates random synthetic precipitation via `Math.random()`, so the mock path inadvertently produces more realistic-looking data than the live path.
-
-- OBSERVATION: `services/aiService.ts:getGroundedSearchResponse` / `getGroundedMapsResponse` — both read `data.groundingChunks`. Python routes `grounded_search.py` and `grounded_maps.py` both hard-code `"groundingChunks": []`. The complex `GroundingChunk` TypeScript interface can never be populated via the current Python backend.
-
-- OBSERVATION: `hooks/useLiveData.ts:ForecastPeriod.windSpeed: string` vs `services/dataService.ts:ForecastRecord.windSpeed: number` — two TypeScript types for the same concept have conflicting types. Python NWS route returns a string like `"10 mph"`; `dataService.ts:getWeatherForecast` hardcodes `windSpeed: 0` (number). Any code reading `ForecastRecord.windSpeed` as a string silently gets `"0"` after coercion.
-
-- OBSERVATION: `hooks/useLiveData.ts:InversionData` — declares 9 fields; Python `_wrap_status` spreads `InversionStatus.to_dict()` which returns 13 fields. Six are not declared in the TS type: `temp850mbF`, `surfaceDewpointC`, `windSpeedKts`, `mixingHeightM`, `source`, `soundingStation`.
-
-**Proposed actions:**
-- Store `sessionId` in React state in `ChatView.tsx`; send `session_id` in each `getChatResponse` call → Active Recommendation #4
-- Add `trainedAt` to `predict_aqi()` return, or mark optional in `PredictionResult` → Active Recommendation #6
-- Add `category`, `color`, `source` to the `aqi-update` inline type in `useRealtimeAQI.ts` → Active Recommendation #7
-- Change `ForecastRecord.windSpeed` to `string` in `dataService.ts` → Active Recommendation #8
-- Widen `InversionData` to include all 13 Python-returned fields — not in top 10 (L/L)
-- `totalPrecipitation` fix requires DB schema change or external weather API — not in top 10 (H/H)
-- `groundingChunks` population requires citation extraction from tool call results — not in top 10 (M/H)
-
 ## 📚 Archive (one line per past run)
+- Run #6 (2026-05-28) — Lens: TS ↔ Python contract — 6 findings — 4 promoted to Active
 - Run #5 (2026-05-28) — Lens: Test coverage gaps — 7 findings — 2 promoted to Active
 - Run #4 (2026-05-28) — Lens: Perf hot paths — 7 findings — 3 promoted to Active
 - Run #3 (2026-05-28) — Lens: Dependency health — 5 findings — 3 promoted to Active
@@ -120,3 +124,4 @@ Last run: #8 — Lens: Data pipeline integrity
 - Run #6: lens 6 (TS ↔ Python contract) — findings added
 - Run #7: lens 7 (UX / UI flaws) — findings added
 - Run #8: lens 8 (Data pipeline integrity) — findings added
+- Run #9: lens 9 (Security) — findings added
