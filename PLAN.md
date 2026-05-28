@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T19:10:00Z
-Last run: #15 — Lens: Live-time claim audit
+Last updated: 2026-05-28T20:05:00Z
+Last run: #16 — Lens: Type safety
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,37 @@ Last run: #15 — Lens: Live-time claim audit
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #16 — 2026-05-28 — Lens: Type safety
+**Scope:** All 23 `.ts` and 41 `.tsx` files on `origin/main`; `tsconfig.json`; searched for `: any`, `as any`, `<any>`, `Record<string, any>`, implicit parameter annotations, `@ts-ignore`, and `@ts-nocheck` directives.
+
+**Findings:**
+
+- OBSERVATION: `tsconfig.json` — The compiler options object contains no `"strict": true` flag and no individual `"noImplicitAny"`, `"strictNullChecks"`, `"strictFunctionTypes"`, `"strictBindCallApply"`, or `"strictPropertyInitialization"` flags. All five strict-mode checks therefore default to `false`. TypeScript silently infers `any` for parameters with no type annotation, permits `null`/`undefined` to flow into any variable, and skips function signature compatibility checking. Every explicit `any` annotation found in the files below is a symptom of this root-cause gap; enabling `strict` would cause the compiler to surface all of them as errors.
+
+- OBSERVATION: `data/dashboardData.ts:195-336` — `generateDailyForecast()` builds and returns an array of objects with ~25 typed fields (nested `temp`, `wind`, `precipitation`, `hourlyData` sub-objects) but its return type is inferred and never named. No `DailyForecast` interface or type alias is exported from this module. Because the return type is opaque to consumers, every call site that iterates the array must annotate loop variables as `day: any` to access fields without a TypeScript error (confirmed: 4 separate `forEach((day: any) => {...})` calls in `hooks/useDashboardData.ts`). Adding `export interface DailyForecast { date: string; dayOfWeek: string; temp: { current: number; min: number; max: number; feelsLike: number }; humidity: number; ... }` and annotating `generateDailyForecast(): DailyForecast[]` would fix all downstream `day: any` annotations in one change.
+
+- OBSERVATION: `hooks/useDashboardData.ts:179,197,199,223,241,243,267,285,287,311,330,332` — Twelve explicit `any` annotations in five `useMemo` blocks (`mergedHumidityData`, `mergedWindData`, `mergedUVData`, `mergedAgriculturalData`, and an intermediate `mergedForecastData` Map). Four are `(day: any)` parameter annotations that cascade from the missing `DailyForecast` type in `dashboardData.ts` (see above). Eight are `result: any[]` / `entry: any` intermediate accumulators that collect `{ month: string; [location: string]: number }` objects — a shape that could be expressed as `type MonthlySeriesPoint = { month: string } & Record<string, number>`. The `Map<string, Record<string, any>>` at line ~68 likewise loses value types.
+
+- OBSERVATION: `components/charts/AQITrendChart.tsx:15`, `components/charts/PM25TrendChart.tsx:15`, `components/charts/TemperaturePrecipitationChart.tsx:15`, `components/charts/WeatherForecastChart.tsx:14` — All four chart components declare `data: any[]` in their props interface. The actual data produced by the five corresponding `useMemo` blocks in `useDashboardData.ts` always has `{ month: string } & Record<string, number>` (AQI/PM25/temperature) or `{ day: string } & Record<string, number>` (forecast) shapes. Replacing `any[]` with `Array<{ month: string } & Record<string, number>>` (or a shared `ChartDataPoint` type alias) would let TypeScript verify that callers pass correctly-shaped data.
+
+- OBSERVATION: `components/AccessibleChart.tsx:66,79,165` — The `DataTableColumn.format` callback is typed `(value: any) => string` (line 66). The `AccessibleChartProps.data` field is `Record<string, any>[]` (line 79). The internal `DataTable` component's `data` prop repeats `Record<string, any>[]` at line 165. Because `AccessibleChart` is the project's accessibility wrapper used by every chart, these `any` types flow through all chart data in the accessible table path. The fix — making `AccessibleChart` generic: `AccessibleChart<T extends Record<string, unknown>>` with `data: T[]` and `format?: (value: T[keyof T]) => string` — would propagate type safety from each chart's data type without requiring per-usage annotation.
+
+- OBSERVATION: `components/3d/AQI3DScene.tsx:57` — `const controlsRef = useRef<any>(null)` is the only `useRef<any>` in the entire codebase. `@react-three/drei` exports `OrbitControls` whose imperative handle type is `OrbitControlsImpl` from `three-stdlib`. The ref is accessed via `controlsRef.current.getTarget(target)` at line 70 — if the library renames or removes `getTarget`, TypeScript gives no warning. The fix is `useRef<OrbitControlsImpl | null>(null)` with `import type { OrbitControlsImpl } from 'three-stdlib'`.
+
+- OBSERVATION: `components/AnalysisView.tsx:255` — `catch (e: any)` then `e.message`. `catch (e: any)` is technically legal without `useUnknownInCatchVariables` (part of `strict`), but it bypasses type narrowing. The `utils/errorHandling.ts` module (used elsewhere in the project) already provides `toDataServiceError(error: unknown)` which performs safe narrowing. The consistent pattern would be `catch (e: unknown) { setError(toDataServiceError(e).getUserMessage()); }`.
+
+- OBSERVATION: `components/DataExplorer.tsx:42` — `ExploreResponse.data: Array<Record<string, any>>`. The `/api/analysis/explore` endpoint returns TimescaleDB time-bucketed rows where columns are the selected source keys (`aqi`, `temperature`, `fires`, etc.) plus a `time` string. The `chartData` memo at line ~80 then does `d.time` (implicitly typed `any`), losing all type checking. The type could be narrowed to `Array<{ time: string } & Record<string, number | null>>` which still allows dynamic source columns while narrowing `time` and value types.
+
+**Proposed actions:**
+- Add `"strict": true` to `tsconfig.json` `compilerOptions`; then progressively fix resulting errors (the most impactful being the `any` annotations below) — H/M, score 1.5; not in top 10
+- Export `DailyForecast` interface from `data/dashboardData.ts` and annotate `generateDailyForecast(): DailyForecast[]`; remove all `(day: any)` annotations in `useDashboardData.ts` — M/L, score 2.0; not in top 10 (newer than existing 3.0 items)
+- Replace `result: any[]` and `entry: any` accumulators in `useDashboardData.ts` with `type MonthlySeriesPoint = { month: string } & Record<string, number>` — M/L, score 2.0; not in top 10
+- Replace `data: any[]` props in the four chart components with a shared `ChartDataPoint` type alias — M/L, score 2.0; not in top 10
+- Make `AccessibleChart` generic (`AccessibleChart<T extends Record<string, unknown>>`) to propagate data types through the accessible table path — M/M, score 1.0; not in top 10
+- Replace `useRef<any>(null)` in `AQI3DScene.tsx:57` with `useRef<OrbitControlsImpl | null>(null)` — L/L, score 1.0; not in top 10
+- Replace `catch (e: any)` in `AnalysisView.tsx:255` with `catch (e: unknown)` + `toDataServiceError(e).getUserMessage()` — L/L, score 1.0; not in top 10
+- Narrow `ExploreResponse.data` in `DataExplorer.tsx:42` to `Array<{ time: string } & Record<string, number | null>>` — M/L, score 2.0; not in top 10
+
 ### Run #15 — 2026-05-28 — Lens: Live-time claim audit
 **Scope:** `components/dashboard/LiveDashboard.tsx`, `components/Dashboard.tsx`, `components/AirQualityMapView.tsx`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`, `hooks/useDashboardData.ts`, `data/dashboardData.ts`, `services/dataService.ts`, `geointellisense-ingestion/src/broadcast.rs`, `geointellisense-ingestion/src/config.rs`, `docker-compose.yml`, `geointellisense-analytics/app/context.py`, `geointellisense-analytics/app/claude.py`
 
@@ -68,38 +99,8 @@ Last run: #15 — Lens: Live-time claim audit
 - Implement pollution source attribution engine correlating CalGEM + CropScape + traffic + FIRMS vs. real-time AQI — M/H, score 0.67
 - Implement threshold-triggered push/email notifications (Redis Pub/Sub → worker → SendGrid) — H/H, score 1.0
 
-### Run #13 — 2026-05-28 — Lens: LLM integration quality
-**Scope:** `geointellisense-analytics/app/claude.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/grounded_search.py`, `app/routes/grounded_maps.py`, `app/routes/low_latency.py`, `app/routes/predictive_analysis.py`, `app/routes/weather_forecast.py`, `services/aiService.ts`, `app/middleware.py`, `requirements.txt`
-
-**Findings:**
-
-- OBSERVATION: `geointellisense-analytics/app/routes/predictive_analysis.py:37-38` and `weather_forecast.py:28-29` — `async def predictive_analysis(req: PredictiveAnalysisRequest)` and `async def weather_forecast(req: WeatherForecastRequest)` accept no `request: Request` parameter and call neither `check_ai_auth()` nor `check_rate_limit()`. All five other AI endpoints (`/api/chat`, `/api/deep-analysis`, `/api/grounded-search`, `/api/grounded-maps`, `/api/low-latency`) enforce the `x-api-key` check and per-IP sliding-window rate limiting defined in `middleware.py`. Any public caller can POST to these two endpoints indefinitely and trigger `claude-sonnet-4-20250514` calls with up to 4 096 output tokens each, with no authentication gate and no cost guardrail.
-
-- OBSERVATION: `geointellisense-analytics/app/claude.py:68` — `get_client()` returns `anthropic.Anthropic(...)` (the synchronous SDK client). Every AI route calls `client.messages.create(...)` inside an `async def` FastAPI handler. The synchronous `create()` call blocks the entire asyncio event loop for the duration of the Anthropic HTTP round-trip (typically 1–30 seconds). Uvicorn processes no other requests on that worker thread until the call returns. The `anthropic` package ships `anthropic.AsyncAnthropic` for exactly this use case; replacing `get_client()` to return `AsyncAnthropic` and awaiting `await client.messages.create(...)` would allow concurrent request handling on the same worker.
-
-- OBSERVATION: `geointellisense-analytics/app/claude.py:71-95` (all six AI routes) — No route uses Anthropic's prompt-caching feature. `get_system_with_live_context()` returns a system prompt that concatenates the base system string with a multi-section live context blob (AQI station readings, earthquake list, active fires, water levels, NWS forecast). This system prompt — potentially 2 000–8 000 tokens depending on data volume — is re-transmitted as a fresh input on every `client.messages.create()` call. Anthropic's `cache_control: {"type": "ephemeral"}` breakpoint on the `system` field caches the prompt for up to 5 minutes, charging 25% of normal input-token price for cache hits. Since `_cached_context` is already refreshed at most once per 60 seconds, back-to-back requests within the same minute would be near-100% cache hits, cutting per-request input-token cost by roughly 80–90% on the cached content.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/weather_forecast.py:55` — `resp = get_client().messages.create(model="claude-sonnet-4-20250514", ..., system=FORECAST_SYSTEM, ...)` passes the static `FORECAST_SYSTEM` string directly, never calling `await get_system_with_live_context(FORECAST_SYSTEM)`. Every other AI route injects current sensor readings, active fires, earthquake events, and NWS forecast into the system prompt via `get_system_with_live_context`. The weather forecast route is the only AI endpoint where the model has no knowledge of present conditions (e.g., an active heat dome or atmospheric river that would directly affect its forecast quality).
-
-- OBSERVATION: `geointellisense-analytics/app/routes/deep_analysis.py:47-67` and `chat.py:49-65` — Both tool-use loops reconstruct the messages list from scratch on each iteration rather than carrying it forward. In `deep_analysis.py`, round 2 sends `[user_msg, round1_assistant_content, round1_tool_results]`; if the model triggers tools again in round 2, round 3 sends the same three-element list — the model's round-2 assistant response and round-2 tool results are silently dropped. With `budget_tokens=32768` extended thinking enabled, Opus's intermediate reasoning from earlier tool rounds is also discarded. The correct pattern is to grow a single `messages` list by appending `{"role": "assistant", "content": resp.content}` and `{"role": "user", "content": tool_results}` on each round before calling `create()` again.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/grounded_search.py:12-16` — `SEARCH_SUFFIX` instructs the model to "Format citations as inline references with titles and URLs where possible." Claude is a language model with no web-retrieval capability; the `TOOLS` list contains only internal data-fetch tools (`get_air_quality`, `get_earthquakes`, `get_active_fires`, `get_water_levels`, `get_weather_forecast`). Any external source URLs that Claude includes in its response are hallucinated. The endpoint is branded as a "grounded search" but performs no actual grounding to external URLs; `SEARCH_SUFFIX` actively encourages fabrication of citations that users may trust as authoritative.
-
-- OBSERVATION: `geointellisense-analytics/app/claude.py:32-43` — `_sessions: dict[str, list[dict]] = {}` is a module-level in-process variable. Under Uvicorn with `--workers N` (or any multi-process deployment), each worker process owns an independent copy of `_sessions`. A user's first `/api/chat` request handled by worker A creates a session in A's dict; if subsequent requests land on worker B (round-robin load balancing), `get_session_history(session_id)` returns `[]` — the model starts from scratch every turn. The project already includes Redis (`redis_url` in `config.py`, `get_redis()` in `cache.py`); serializing session history as a JSON list keyed by `session_id` with a TTL of e.g. 2 hours would make sessions worker-agnostic.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/chat.py:37`, `deep_analysis.py:30`, `grounded_search.py:33`, `grounded_maps.py:37`, `low_latency.py:30` — No AI route implements retry logic for transient Anthropic API errors. When `client.messages.create()` raises `anthropic.RateLimitError` (HTTP 429) or `anthropic.InternalServerError` (HTTP 529), the outer `except Exception as e:` block immediately returns HTTP 500 to the client with the raw exception string. Anthropic's own documentation recommends 2–4 retries with exponential backoff for these status codes; without it, a momentary rate-limit burst or upstream overload permanently fails user requests rather than waiting a few seconds and retrying.
-
-**Proposed actions:**
-- Add `request: Request` parameter and call `check_ai_auth(request)` + `await check_rate_limit(request, "ai_deep")` at the top of `predictive_analysis.py` and `weather_forecast.py` — references Active Recommendations row #10
-- Replace `get_client()` → `anthropic.Anthropic(...)` with `anthropic.AsyncAnthropic(...)` and `await client.messages.create(...)` across all six routes — not in top 10 (H/M, score 1.5)
-- Add `cache_control: {"type": "ephemeral"}` breakpoint to the `system` field in all `client.messages.create()` calls that use `get_system_with_live_context()` — not in top 10 (H/M, score 1.5)
-- Replace `system=FORECAST_SYSTEM` in `weather_forecast.py:55` with `system=await get_system_with_live_context(FORECAST_SYSTEM)` — not in top 10 (M/L, score 2.0; newer first-seen than items 1-9)
-- Accumulate messages list across tool-use rounds in `deep_analysis.py` and `chat.py` rather than rebuilding from session history each round — not in top 10 (M/L, score 2.0; newer first-seen)
-- Remove or rewrite `SEARCH_SUFFIX` in `grounded_search.py:12-16` to omit URL citation instructions since Claude has no web access — not in top 10 (M/L, score 2.0; newer first-seen)
-- Move session history to Redis: store as `geointelli:session:<id>` JSON list with 2-hour TTL; update `get_session_history`, `append_to_session`, `reset_session` in `claude.py` — not in top 10 (H/M, score 1.5)
-- Add exponential-backoff retry (max 3 attempts, 1s/2s/4s) for `anthropic.RateLimitError` and `anthropic.InternalServerError` in all five route files — not in top 10 (H/L, score 3.0; newer first-seen than items 1-9, 11th H/L item overall)
-
 ## 📚 Archive (one line per past run)
+- Run #13 (2026-05-28) — Lens: LLM integration quality — 8 findings — 0 promoted to Active
 - Run #12 (2026-05-28) — Lens: Deployment / Docker — 7 findings — 0 promoted to Active
 - Run #11 (2026-05-28) — Lens: Docs — 10 findings — 0 promoted to Active
 - Run #10 (2026-05-28) — Lens: Observability — 6 findings — 2 promoted to Active
@@ -129,3 +130,4 @@ Last run: #15 — Lens: Live-time claim audit
 - Run #13: lens 13 (LLM integration quality) — findings added
 - Run #14: lens 14 (Competitive scan) — findings added
 - Run #15: lens 15 (Live-time claim audit) — findings added
+- Run #16: lens 1 (Type safety) — findings added
