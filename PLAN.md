@@ -1,22 +1,53 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T07:15:00Z
-Last run: #3 — Lens: Dependency health
+Last updated: 2026-05-28T08:18:00Z
+Last run: #4 — Lens: Perf hot paths
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
 |---|-------|------|----------------|----------------|--------------------|--------|
-| 1 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
-| 2 | Extract shared base URL config module | Module boundaries | M | L | 2 | Open |
-| 3 | Move `CityData` type out of `CityMarkers` into `types.ts` | Module boundaries | M | L | 2 | Open |
-| 4 | Move `LocationKey` from `dashboardData` into `types.ts` | Module boundaries | M | L | 2 | Open |
-| 5 | Upgrade Anthropic Python SDK from `0.49.*` to `>=0.50` | Dep health | M | L | 3 | Open |
-| 6 | Enable TypeScript strict mode in `tsconfig.json` | Type safety | H | M | 1 | Open |
-| 7 | Split `colorScales.ts` — isolate THREE-dependent exports | Dep health | H | M | 3 | Open |
-| 8 | Remove stale importmap CDN entries; adopt Tailwind PostCSS | Dep health | H | M | 3 | Open |
-| 9 | Replace `Record<string, any>` chart-row maps | Type safety | M | M | 1 | Open |
-| 10 | Remove static `dashboardData` fallback from `DataService` | Module boundaries | M | M | 2 | Open |
+| 1 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
+| 2 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
+| 3 | Extract shared base URL config module | Module boundaries | M | L | 2 | Open |
+| 4 | Use `asyncio.gather` in `build_live_context` | Perf | M | L | 4 | Open |
+| 5 | Reuse `THREE.Vector3` ref in `CameraController.useFrame` | Perf | M | L | 4 | Open |
+| 6 | Replace `toLocaleDateString` with month-lookup array in `useDashboardData` | Perf | M | L | 4 | Open |
+| 7 | Dispose `THREE.Line` objects created in `Streamline` JSX | Perf | M | L | 4 | Open |
+| 8 | Move `CityData` type out of `CityMarkers` into `types.ts` | Module boundaries | M | L | 2 | Open |
+| 9 | Move `LocationKey` from `dashboardData` into `types.ts` | Module boundaries | M | L | 2 | Open |
+| 10 | Upgrade Anthropic Python SDK from `0.49.*` to `>=0.50` | Dep health | M | L | 3 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #4 — 2026-05-28 — Lens: Perf hot paths
+**Scope:** `geointellisense-ingestion/src/db/persist.rs`, `src/broadcast.rs`, `src/purpleair.rs`; `components/3d/AQI3DScene.tsx`, `CityMarkers.tsx`, `TerrainMesh.tsx`, `WindField.tsx`; `utils/interpolation.ts`; `hooks/useDashboardData.ts`, `hooks/useRealtimeAQI.ts`; `geointellisense-analytics/app/context.py`.
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-ingestion/src/db/persist.rs:5-36` — `write_readings` executes one `sqlx::query(...).execute(pool).await` per reading inside a sequential `for` loop. With the default seeded station count (~20), every broadcast tick creates 20 individual TCP round-trips to PostgreSQL. The standard PostgreSQL pattern for bulk inserts is a single `INSERT … SELECT UNNEST($1::uuid[], $2::real[], …)` which reduces N round-trips to 1. Because `sensor_readings` is a TimescaleDB hypertable (seen in `db/migrations/002_sensor_readings.sql`), row-level locking overhead compounds the cost.
+
+- OBSERVATION: `components/3d/AQI3DScene.tsx:70` — `CameraController.useFrame` allocates `const target = new THREE.Vector3()` on every animation frame when the `onCameraMove` prop is set. At 60 fps this creates ~3,600 short-lived heap objects per minute. The fix is a `useRef<THREE.Vector3>` initialized once and reused via `.set()` calls inside the frame callback — a standard React Three Fiber GC-pressure pattern.
+
+- OBSERVATION: `components/3d/WindField.tsx` — (a) `WindParticleSystem`'s initialization `useMemo` performs a brute-force O(P×W) nearest-wind-point search: for each of `count` (default 500) particles it scans all `windData` entries with `Math.sqrt` + comparison (lines ~147-165). Acceptable with 6 cities today; degrades linearly if station count grows. (b) Every `Streamline` component renders `<primitive object={new THREE.Line(geometry, material)} />` where a brand-new `THREE.Line` is constructed in JSX on each React render. React reconciliation creates a new THREE object every time the parent `streamlines` useMemo recomputes, and the old `THREE.Line`'s GPU buffers are never disposed, leaking WebGL geometry memory. The fix is to create the Line inside a `useMemo` or `useRef` and call `geometry.dispose() / material.dispose()` in a `useEffect` cleanup.
+
+- OBSERVATION: `utils/interpolation.ts:generateInterpolatedMatrix` — called from `TerrainMesh.tsx`'s `useMemo` with default `textureResolution=128`. For each of 128×128 = 16,384 grid cells, `interpolateIDW` is invoked, which calls `.map()`, `.filter()`, `.sort()` on the `dataPoints` array. This O(W·H·N·log N) computation runs synchronously on the JS main thread and blocks React rendering on every AQI data update. Moving this to a `Worker` (via Comlink) or caching the result keyed by `aqiData` identity would eliminate render jank.
+
+- OBSERVATION: `components/3d/CityMarkers.tsx` — each city is rendered as an individual `<group>` with 4 separate geometries (circleGeometry, cylinderGeometry, 2× sphereGeometry), producing 4×N WebGL draw calls per frame. Each `CityMarker` registers its own `useFrame` for the pulsing glow animation, so N cities = N `useFrame` callbacks every frame. Migrating to `InstancedMesh` with per-instance color attributes would collapse N×4 draw calls to 2 and a single parent `useFrame` could drive all animations.
+
+- OBSERVATION: `hooks/useDashboardData.ts` — `mergedHumidityData`, `mergedWindData`, `mergedUVData`, and `mergedAgriculturalData` each call `dayDate.toLocaleDateString('en-US', { month: 'short' })` inside `dailyForecast.forEach` loops (~lines 155-355). `toLocaleDateString` invokes the V8 ICU locale subsystem on every call. With a 365-day forecast, 4 memos, and 1+ selected locations, a full recompute performs ~1,460 locale API calls per `startDate`/`endDate` change. A 12-element `['Jan','Feb',…]` lookup array is orders of magnitude faster.
+
+- OBSERVATION: `geointellisense-analytics/app/context.py:67-75` — `build_live_context` awaits all 8 data-source fetchers sequentially (`context["aqi"] = await _get_aqi_context(pool)` … `context["prediction"] = await _get_prediction_context(pool)`). Total latency equals the sum of all 8 query times. Wrapping in `asyncio.gather` would run them concurrently against the asyncpg pool, reducing latency to roughly `max(query_times)`. `build_live_context` is called on every AI endpoint that uses `get_system_with_live_context`, including the high-frequency `/api/low-latency` route.
+
+- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:80-84` — the broadcast ticker overwrites all `AqiReading` timestamps with `Utc::now()` at broadcast time: `live.iter().map(|r| AqiReading { timestamp: now, ..r.clone() })`. If the PurpleAir poller and broadcast ticker run at different intervals, readings stored in `sensor_readings.time` carry the broadcast timestamp rather than the actual sensor observation time. Downstream time-series aggregations in `historical_aqi.py` silently bucket readings at the wrong minute.
+
+**Proposed actions:**
+- Replace `write_readings` loop with a single UNNEST batch INSERT → Active Recommendation #1
+- Add `useRef<THREE.Vector3>` in `CameraController` to reuse across frames → Active Recommendation #5
+- Fix `Streamline` to create `THREE.Line` in `useMemo`/`useRef` and dispose on unmount → Active Recommendation #7
+- Replace `toLocaleDateString` calls with a static `MONTH_NAMES` array in `useDashboardData` → Active Recommendation #6
+- Wrap `build_live_context` data fetchers in `asyncio.gather` → Active Recommendation #4
+- Migrate `generateInterpolatedMatrix` to a Web Worker — not in top 10 (H/M, score 1.5)
+- Migrate `CityMarkers` to `InstancedMesh` — not in top 10 (H/H, score 1.0)
+- Preserve original `fetched_at` timestamp in `AqiReading`; use in `persist.rs` — not in top 10 (M/M, score 1.0)
+
 ### Run #3 — 2026-05-28 — Lens: Dependency health
 **Scope:** `package.json`, `package-lock.json` (lockfileVersion 3, 368 packages), `vite.config.ts`, `index.html`, `geointellisense-analytics/requirements.txt`, `geointellisense-ingestion/Cargo.toml` + `Cargo.lock` (283 packages), all `.tsx`/`.ts` import statements for three.js; checked for `"latest"` version pins, deprecated transitive deps, CDN dependencies, bundle-split effectiveness, and SDK version lag.
 
@@ -35,69 +66,18 @@ Last run: #3 — Lens: Dependency health
 - OBSERVATION: `geointellisense-analytics/requirements.txt` specifies `numpy>=1.26,<2.1` — a range rather than a minor-pinned spec — while all other scientific deps (`scipy`, `scikit-learn`, `joblib`) also use range pins. This is intentional and correct for scientific stack. However, there is no `requirements.lock` / `pip-compile` artefact in the repo; the Docker image will install the latest-matching versions at build time with no reproducibility guarantee across builds.
 
 **Proposed actions:**
-- Split `utils/colorScales.ts` into `utils/aqiColors.ts` (pure JS, no THREE) and `utils/colorScalesThree.ts` (THREE textures); update `AirQualityMapView.tsx` and other non-3D importers to use the pure file → Active Recommendation #7
-- Remove the `<script type="importmap">` block and the Tailwind CDN `<script>` from `index.html`; install `tailwindcss` as a dev dep and configure the PostCSS plugin in `vite.config.ts` → Active Recommendation #8
+- Split `utils/colorScales.ts` into `utils/aqiColors.ts` (pure JS, no THREE) and `utils/colorScalesThree.ts` (THREE textures); update `AirQualityMapView.tsx` and other non-3D importers to use the pure file → Active Recommendation (fell off top 10 this run)
+- Remove the `<script type="importmap">` block and the Tailwind CDN `<script>` from `index.html`; install `tailwindcss` as a dev dep and configure the PostCSS plugin in `vite.config.ts` → Active Recommendation (fell off top 10 this run)
 - Change `"@googlemaps/markerclusterer": "latest"` to `"^2.6.2"` in `package.json` → not in top 10 (L/L, displaced)
 - Upgrade `rand` in `Cargo.toml` from `"0.8"` to `"0.9"` and run `cargo update` → not in top 10 (L/L, displaced)
-- Bump `anthropic` in `requirements.txt` to `>=0.50,<0.52` → Active Recommendation #5
-
-### Run #2 — 2026-05-28 — Lens: Module boundaries
-**Scope:** All import statements in `hooks/`, `services/`, `contexts/`, `components/`, `data/` on `main` branch; traced cross-layer import chains; checked for duplicated constants and parallel type hierarchies.
-
-**Findings:**
-
-- OBSERVATION: `hooks/useRealtimeAQI.ts:8` imports `type { CityData }` from `../components/3d/CityMarkers`. A hook reaching into a component module inverts the normal dependency direction (`components` → `hooks`). `CityData` is used to extend `RealtimeCityData`; because `CityMarkers` does not import `useRealtimeAQI` the dep graph is acyclic today, but the coupling is fragile — any refactor of the 3-D component layer risks breaking an unrelated hook. The shared type belongs in `types.ts`.
-
-- OBSERVATION: `contexts/UserPreferencesContext.tsx:2` imports `LocationKey` from `../data/dashboardData`. A React context (global singleton) should not depend on a data-layer module. `LocationKey` is a plain union type that belongs in `types.ts`, not embedded inside static mock data.
-
-- OBSERVATION: `services/dataService.ts:4` imports `dashboardData, cityLocations` from `../data/dashboardData` with the comment `// Keep for fallback`. The service also performs a dynamic `import('../data/dashboardData')` (~line 274) for a second code path. This silently serves stale mock data when the backend is unavailable, hiding outages and giving users false confidence in the data. The fallback bypasses the error-surface that `useLiveData` implements correctly.
-
-- OBSERVATION: `GATEWAY_URL`/`ANALYTICS_URL` and `INGESTION_URL` base-URL constants are independently re-declared in four files: `services/dataService.ts`, `services/WeatherService.ts`, `services/AirQualityService.ts`, and `hooks/useLiveData.ts`. Each has a slightly different form — `dataService.ts` appends `/api` in the const itself while `useLiveData.ts` appends it per-call — creating subtle inconsistency. Any port or path change requires editing 4+ files.
-
-- OBSERVATION: `services/WeatherService.ts` exports `WeatherData` and `ForecastData`; `services/dataService.ts` exports `WeatherRecord` and `ForecastRecord`. Both describe weather readings with heavily overlapping fields (temperature/temp, humidity, windSpeed, etc.) but different field names and shapes. `DataService` wraps `WeatherService` internally but never re-exports or canonicalises the type, so consumers can pull from either service producing two incompatible weather shapes in the same codebase.
-
-- OBSERVATION: `components/Dashboard.tsx` imports both from `services/dataService.ts` (for `AQIRecord`, `WeatherRecord`, etc.) and directly from `data/dashboardData.ts` (for `locations`, `LocationKey`). The service abstraction is leaky: it covers data-record types but not the location metadata that drives queries, forcing the view to reach past the service layer into raw static data.
-
-**Proposed actions:**
-- Move `CityData` type from `components/3d/CityMarkers.tsx` to `types.ts` → Active Recommendation #3
-- Move `LocationKey` from `data/dashboardData.ts` to `types.ts`; update all importers → Active Recommendation #4
-- Create `services/config.ts` exporting `GATEWAY_URL` and `INGESTION_URL`; replace 4 inline declarations → Active Recommendation #2
-- Delete the static-data fallback paths from `DataService`; let `useLiveData` error handling surface failures → Active Recommendation #10
-- Decide on one canonical weather type (`WeatherRecord` vs `WeatherData`) and remove the duplicate — not yet in top 10 (M/H ratio 0.67)
-
-### Run #1 — 2026-05-28 — Lens: Type safety
-**Scope:** `tsconfig.json`, `types.ts`, `hooks/useDashboardData.ts`, `hooks/useLiveData.ts`, `hooks/useRealtimeAQI.ts`, `services/aiService.ts`, `services/dataService.ts`, `data/dashboardData.ts`, `utils/errorHandling.ts` — read via GitHub API on `main` branch.
-
-**Findings:**
-
-- OBSERVATION: `tsconfig.json` has no `"strict"`, `"noImplicitAny"`, or `"strictNullChecks"` flags. The compiler runs in its most permissive mode, silently accepting all implicit `any` types and unchecked nulls throughout the codebase. (`tsconfig.json:1-22`)
-
-- OBSERVATION: `hooks/useDashboardData.ts` uses `Map<string, Record<string, any>>` for every chart-data merge function — `mergedForecastData` (~line 63), `mergedHistoricalAqi` (~line 101), `mergedHistoricalPm25` (~line 117), `mergedHistoricalWeather` (~line 133) — discarding all structural type information for downstream Recharts consumers.
-
-- OBSERVATION: `hooks/useDashboardData.ts` iterates `dailyForecast` entries as `(day: any)` in four separate `useMemo` blocks (~lines 154, 187, 222, 257) because `generateDailyForecast` in `data/dashboardData.ts` has no return type annotation, making its inferred element type opaque.
-
-- OBSERVATION: `hooks/useDashboardData.ts` declares `result: any[]` and `entry: any` temporaries in every merged-weather memo (humidity, wind, UV, agricultural), stripping shape information from the hook's public return values. (~lines 163–168, 200–205, 235–240, 270–275)
-
-- OBSERVATION: `data/dashboardData.ts` — `generateDailyForecast` (a ~120-line function near the bottom of the file) has no return type annotation. TypeScript infers a complex structural type that is not exported or named, forcing every consumer to fall back to `any`.
-
-- OBSERVATION: `services/aiService.ts` — every `await response.json()` call returns the implicit `any` type. Properties `.text` and `.groundingChunks` are accessed without type assertions or runtime guards. Any backend contract change produces a silent runtime `undefined` instead of a compile-time error. (All six exported functions, e.g., `getChatResponse`, `getGroundedSearchResponse`, `getDeepAnalysisResponse`, etc.)
-
-- OBSERVATION: `services/dataService.ts` — `getDashboardMetrics` returns an anonymous object literal with no declared return interface. Consumers cannot rely on compile-time shape checking. (`services/dataService.ts`, `getDashboardMetrics` method)
-
-- OBSERVATION: `utils/errorHandling.ts` — `safeJsonParse<T>` performs `JSON.parse(json) as T` (~line 247) with no runtime validation. The generic type parameter is purely cosmetic; any malformed payload silently passes as `T`.
-
-**Proposed actions:**
-- Add `"strict": true` to `tsconfig.json` → Active Recommendation #6
-- Export a `DailyForecast` interface from `data/dashboardData.ts` and annotate the return type of `generateDailyForecast` → (fell off top 10 this run, revisit)
-- Replace `Record<string, any>` maps and `any[]`/`any` temporaries in `useDashboardData.ts` with typed chart-row interfaces → Active Recommendation #9
-- Add typed `interface` for each `response.json()` result in `services/aiService.ts` → Active Recommendation #1
-- Add explicit return-type interface to `getDashboardMetrics` in `services/dataService.ts` → (fell off top 10 this run, revisit)
-- Replace `safeJsonParse` cast with a Zod schema or type guard → (fell off top 10 this run, revisit)
+- Bump `anthropic` in `requirements.txt` to `>=0.50,<0.52` → Active Recommendation #10
 
 ## 📚 Archive (one line per past run)
-_(no archived runs yet)_
+- Run #1 (2026-05-28) — Lens: Type safety — 8 findings — 4 promoted to Active
+- Run #2 (2026-05-28) — Lens: Module boundaries — 6 findings — 4 promoted to Active
 
 ## 🔁 Lens rotation log
 - Run #1: lens 1 (Type safety) — findings added
 - Run #2: lens 2 (Module boundaries) — findings added
 - Run #3: lens 3 (Dependency health) — findings added
+- Run #4: lens 4 (Perf hot paths) — findings added
