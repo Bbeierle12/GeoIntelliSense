@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T08:18:00Z
-Last run: #4 — Lens: Perf hot paths
+Last updated: 2026-05-28T09:12:00Z
+Last run: #5 — Lens: Test coverage gaps
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -12,11 +12,40 @@ Last run: #4 — Lens: Perf hot paths
 | 5 | Reuse `THREE.Vector3` ref in `CameraController.useFrame` | Perf | M | L | 4 | Open |
 | 6 | Replace `toLocaleDateString` with month-lookup array in `useDashboardData` | Perf | M | L | 4 | Open |
 | 7 | Dispose `THREE.Line` objects created in `Streamline` JSX | Perf | M | L | 4 | Open |
-| 8 | Move `CityData` type out of `CityMarkers` into `types.ts` | Module boundaries | M | L | 2 | Open |
-| 9 | Move `LocationKey` from `dashboardData` into `types.ts` | Module boundaries | M | L | 2 | Open |
+| 8 | Add Vitest coverage thresholds to `vite.config.ts` | Test coverage | M | L | 5 | Open |
+| 9 | Add unit tests for `interpolation.ts`, `weatherUtils.ts`, `colorScales.ts` pure functions | Test coverage | M | L | 5 | Open |
 | 10 | Upgrade Anthropic Python SDK from `0.49.*` to `>=0.50` | Dep health | M | L | 3 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #5 — 2026-05-28 — Lens: Test coverage gaps
+**Scope:** All files under `components/`, `hooks/`, `utils/`, `services/`, `contexts/`; `App.test.tsx`; `tests/*.test.tsx`; `vite.config.ts`; `package.json`; all `.rs` files in `geointellisense-ingestion/src/`; all `.py` files in `geointellisense-analytics/`; `geointellisense-ingestion/Cargo.toml`; `geointellisense-analytics/requirements.txt`.
+
+**Findings:**
+
+- OBSERVATION: `vite.config.ts:36-40` — the `test` block configures `globals`, `environment`, `setupFiles`, and `css`, but has no `coverage` key. `@vitest/coverage-v8` is present in `package.json:devDependencies`, and `"test:coverage": "vitest --coverage"` exists as an npm script, but without a `coverage.thresholds` section, `vitest --coverage` always exits 0 regardless of how little code is exercised. Any CI step running `npm run test:coverage` passes even at 0 % branch/statement coverage.
+
+- OBSERVATION: `geointellisense-analytics/` — the entire Python analytics service (30 route files, 10 client files, `ml/aqi_model.py`, `cache.py`, `http_client.py`, `middleware.py`, `context.py`) has **zero test files**. `pytest` does not appear in `requirements.txt`. There is no `conftest.py`, no `tests/` directory, and no `pyproject.toml` with a `[tool.pytest]` section. This means the FastAPI routes (`/api/chat`, `/api/low-latency`, `/api/predict`, all 30 others) ship with no automated validation. The `middleware.py` rate-limiter and the `ml/aqi_model.py` prediction pipeline are the highest-risk untested paths.
+
+- OBSERVATION: `geointellisense-ingestion/src/` — all 15 Rust source files (`aqi.rs`, `broadcast.rs`, `config.rs`, `db/persist.rs`, `db/mod.rs`, `main.rs`, `purpleair.rs`, `redis_cache.rs`, `routes/admin.rs`, `routes/aqi.rs`, `routes/earthquakes.rs`, `routes/health.rs`, `routes/mod.rs`, `routes/sse.rs`, `usgs.rs`) contain **zero `#[test]` functions** and zero `#[cfg(test)]` modules. `Cargo.toml` has no `[dev-dependencies]` section. The `aqi.rs` AQI calculation logic and the `persist.rs` database write path (already flagged in Run #4 for correctness issues) are both completely untested.
+
+- OBSERVATION: `utils/interpolation.ts`, `utils/weatherUtils.ts`, `utils/colorScales.ts` — these three files contain exclusively **pure, side-effect-free functions** (`interpolateIDW`, `generateInterpolatedMatrix`, `calculateFeelsLike`, `calculateET0`, `calculateSunTimes`, `getAQIColor`, `getAQICategory`) with no network calls, DOM access, or React state — yet none appears in any test file. `interpolation.ts` is 441 lines with non-trivial spatial algorithms; a boundary case bug (e.g. zero data points passed to `interpolateIDW`) silently returns `{ value: 0, confidence: 0 }` and would corrupt the terrain map without any test catching it. `weatherUtils.ts` implements the NOAA Heat Index formula and ET₀ (Penman-Monteith) — physical equations that are independently verifiable but currently unverified.
+
+- OBSERVATION: `hooks/useRealtimeAQI.ts` — contains SSE connection management, exponential-backoff reconnection (`reconnectInterval`, `maxReconnectAttempts`), history ring-buffer caching (`maxHistorySize`), and a mock-data fallback path (`fallbackToMock`). None of these behaviours appear in any test. The hook is a central reliability contract: if reconnection logic is broken, the live 3D view silently stalls. The mock fallback path (used in development and possibly in CI) is also untested.
+
+- OBSERVATION: `hooks/useDashboardData.ts`, `hooks/useLiveData.ts`, `hooks/useNormalizedData.ts`, `hooks/useViewport.ts` — all four hooks have **zero test coverage**. `useLiveData.ts` classifies HTTP status codes into `ErrorKind` enum values (`'network'`, `'disabled'`, `'client'`, `'server'`) and drives the polling loop; incorrect classification would surface as wrong UI error states. `useDashboardData.ts` was identified in Run #4 as containing performance-critical transformation logic that is now also known to be untested.
+
+- OBSERVATION: `services/AirQualityService.ts`, `services/WeatherService.ts`, `services/dataService.ts`, `services/aiService.ts` — the entire service layer has **zero test coverage**. `AirQualityService` implements a singleton with a 4-second TTL cache (`CACHE_TTL_MS = 4000`) that deduplicates `fetch` calls; the cache-miss vs. cache-hit branching is untested. `dataService.ts` defines all the TypeScript interfaces consumed by hooks and components but its fetch paths are never exercised in tests.
+
+- OBSERVATION: `App.test.tsx` — the only top-level test file contains **three smoke assertions** (container `.flex.h-screen` exists, `<main>` exists, `<main>` has the expected CSS classes). There are no tests for view routing, sidebar navigation, error boundary activation, or any feature flag. The file satisfies "we have App tests" but provides effectively no regression safety.
+
+**Proposed actions:**
+- Add `coverage.thresholds` block to `vite.config.ts` `test` section (e.g. `lines: 60, branches: 50`) → Active Recommendation #8
+- Add pure-function unit tests for `utils/interpolation.ts`, `utils/weatherUtils.ts`, `utils/colorScales.ts` → Active Recommendation #9
+- Add `pytest`, `httpx[test]`, and `pytest-asyncio` to `requirements.txt`; create `geointellisense-analytics/tests/` with smoke tests for `/health`, `/api/chat`, and middleware — not in top 10 (H/H, score 1.0)
+- Add `#[cfg(test)]` modules to `geointellisense-ingestion/src/aqi.rs` and `persist.rs`; add `tokio-test` to `[dev-dependencies]` — not in top 10 (M/M, score 1.0)
+- Add `renderHook` tests for `useRealtimeAQI` reconnection and mock fallback — not in top 10 (M/M, score 1.0)
+- Add `renderHook` tests for `useLiveData` error-kind classification — not in top 10 (M/M, score 1.0)
+
 ### Run #4 — 2026-05-28 — Lens: Perf hot paths
 **Scope:** `geointellisense-ingestion/src/db/persist.rs`, `src/broadcast.rs`, `src/purpleair.rs`; `components/3d/AQI3DScene.tsx`, `CityMarkers.tsx`, `TerrainMesh.tsx`, `WindField.tsx`; `utils/interpolation.ts`; `hooks/useDashboardData.ts`, `hooks/useRealtimeAQI.ts`; `geointellisense-analytics/app/context.py`.
 
@@ -81,3 +110,4 @@ Last run: #4 — Lens: Perf hot paths
 - Run #2: lens 2 (Module boundaries) — findings added
 - Run #3: lens 3 (Dependency health) — findings added
 - Run #4: lens 4 (Perf hot paths) — findings added
+- Run #5: lens 5 (Test coverage gaps) — findings added
