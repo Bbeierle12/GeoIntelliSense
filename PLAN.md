@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T14:10:00Z
-Last run: #10 — Lens: Observability
+Last updated: 2026-05-28T15:20:00Z
+Last run: #11 — Lens: Docs
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,40 @@ Last run: #10 — Lens: Observability
 | 10 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #11 — 2026-05-28 — Lens: Docs
+**Scope:** `README.md`, `IMPLEMENTATION_STATUS.md`, `.env.local.example`, `docker-compose.yml`; `geointellisense-analytics/app/config.py`, `app/main.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/grounded_search.py`, `app/routes/admin.py`; `geointellisense-ingestion/src/aqi.rs`, `src/broadcast.rs`, `src/config.rs`, `src/main.rs`; `services/aiService.ts`; `components/dashboard/widgets/InversionWidget.tsx`, `WaterWidget.tsx`, `WeatherWidget.tsx`.
+
+**Findings:**
+
+- OBSERVATION: `README.md:64` — The Architecture section states "**Backend** (Express): Runs on `http://localhost:3001`." The actual production stack has no Express server in Docker: the Rust ingestion service listens on port 3001, a Python FastAPI analytics service on port 3002, and a Caddy API gateway on port 8080. The Express `server/index.js` is a dev-only proxy and does not appear in `docker-compose.yml` at all. A new contributor following the README will be confused about which backend serves which API routes. The "How to Run" section (`npm run dev:full`) also never mentions Docker Compose, which is the only way to start the Rust, Python, and database services.
+
+- OBSERVATION: `.env.local.example` is materially incomplete. It documents only 5 variables (`ANTHROPIC_API_KEY`, `PURPLEAIR_API_KEY`, `GOOGLE_MAPS_API_KEY`, `RUST_SERVICE_URL`, `PYTHON_SERVICE_URL`). The `docker-compose.yml` ingestion service block additionally requires `ADMIN_TOKEN`, `PURPLEAIR_INTERVAL_SECS`, and `BROADCAST_INTERVAL_SECS` (and the DB/Redis port variables). The analytics `config.py` (`Settings` class) reads `EPA_AQS_EMAIL`, `EPA_AQS_KEY`, `AIRNOW_API_KEY`, `NOAA_CDO_TOKEN`, `NASA_FIRMS_KEY`, and `CENSUS_API_KEY` — none of which appear in `.env.local.example`. Without these keys, the 12 Python API clients that lack retry logic (see Run #8) silently return empty results, but there is no documentation telling a deployer which keys are needed for which data source.
+
+- OBSERVATION: `docker-compose.yml` analytics service block passes `GOOGLE_MAPS_API_KEY`, `DEM_DATA_DIR`, `LANDSAT_DATA_DIR`, and `MODEL_DIR` as environment variables into the container, but `geointellisense-analytics/app/config.py` (`Settings` class) does not declare any of these four fields. They are never read by the analytics service. Either they are vestigial from an earlier implementation, are silently consumed by child processes, or the `config.py` `Settings` class needs to be updated to reflect them.
+
+- OBSERVATION: `IMPLEMENTATION_STATUS.md` is stale in two ways. (1) Phase 1.1 is marked "Secure API Key Management ✅ COMPLETED" and states the Maps key is "Protected via backend endpoint `/api/maps-config`," but this endpoint remains unauthenticated (Open in Active Recommendation #6, found Run #9). (2) The "How to Run" section instructs users to create a `.env` with only `ANTHROPIC_API_KEY` and `GOOGLE_MAPS_API_KEY`, which is insufficient for the Docker stack: the database, Redis, ingestion service, and analytics service each require additional variables documented nowhere in the file.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/chat.py:23` — `async def chat()`, the primary AI endpoint, has no docstring. It accepts `ChatRequest` (with fields `message: str` and `session_id: str | None`), performs auth + rate-limit checks, runs up to 5 Anthropic tool-call rounds, and returns `{"text": ..., "sessionId": ...}` — none of which is stated in the function signature, decorator, or body. `grounded_search.py:24` (`async def grounded_search()`) and `deep_analysis.py:18` (`async def deep_analysis()`) share the same gap: no docstring on the route handler. Together these three handle all AI-facing traffic but have zero inline documentation of auth requirements, input validation, return shape, or error codes.
+
+- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs` — Public type aliases and functions lack `///` doc comments. `AqiBroadcast` (line 13), `LiveCache` (line 16), and `EarthquakeCache` (line 20) are type aliases with no explanation of lock semantics or update frequency. `pub fn create() -> AqiBroadcast` (line 33) has no doc; `pub fn spawn_ticker(tx, pool, cache, redis, pa_client, broadcast_interval_secs, purpleair_interval_secs)` (line 38) takes 7 parameters and has no `///` explaining what each does or what goroutine/task it spawns. Only `spawn_earthquake_poller` (line 133) has a two-line doc comment.
+
+- OBSERVATION: `geointellisense-ingestion/src/aqi.rs` — Five public functions have no `///` doc comments: `stations()` (line 53), `aqi_category()` (line 88), `generate_readings()` (line 99), `generate_history()` (line 138), and `round2()` (line 164). These are the only mock-data generators for the entire ingestion service; when `PURPLEAIR_API_KEY` is absent every SSE broadcast uses their output, but there is no inline documentation of the AQI formula, the bounding box, the mock station list, or the history generation algorithm.
+
+- OBSERVATION: `services/aiService.ts` — Seven exported async functions (lines 8, 30, 52, 74, 96, 118, 154: `getChatResponse`, `getGroundedSearchResponse`, `getGroundedMapsResponse`, `getLowLatencyResponse`, `getDeepAnalysisResponse`, `getPredictiveAnalysisResponse`, `getWeatherForecastResponse`) have no JSDoc. There is no inline documentation of which backend endpoint each function calls, what `x-api-key` header value is expected, what the resolved Promise shape is, or what exceptions are thrown on 401/429/500 responses.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/admin.py:11` — `def _check_admin(token: str | None) -> JSONResponse | None:` has no docstring. This security-critical helper is called at the top of every admin route and returns a 403/401 `JSONResponse` on failure or `None` on success, but nothing in the function explains this sentinel-return contract. A developer adding a new admin route must read the body to understand the calling convention.
+
+- OBSERVATION: `geointellisense-ingestion/src/config.rs` — `Config` struct and its only method `pub fn from_env() -> Self` have no `///` doc comments. `config.rs` is the single source of truth for every environment variable consumed by the ingestion service, but none of the fields documents its default value, valid range, or effect. `earthquake_interval_secs` (default 300 s) and `broadcast_interval_secs` (default 5 s) are performance-sensitive tunables that affect SSE client freshness; their operational implications are undocumented.
+
+**Proposed actions:**
+- Update `README.md:37-64` to replace Express/3001 with Rust ingestion/3001 + Python FastAPI/3002 + Caddy/8080; add a "Docker Compose" section explaining `docker compose up` as the correct startup path — not in top 10 (M/L, score 2.0; ties with item 10 but first seen run 11)
+- Extend `.env.local.example` to include all analytics API keys (`EPA_AQS_EMAIL`, `EPA_AQS_KEY`, `AIRNOW_API_KEY`, `NOAA_CDO_TOKEN`, `NASA_FIRMS_KEY`, `CENSUS_API_KEY`) and ingestion tunables (`ADMIN_TOKEN`, `PURPLEAIR_INTERVAL_SECS`, `BROADCAST_INTERVAL_SECS`) with comments — not in top 10 (M/L, score 2.0)
+- Audit and remove or document `GOOGLE_MAPS_API_KEY`, `DEM_DATA_DIR`, `LANDSAT_DATA_DIR`, `MODEL_DIR` in `docker-compose.yml` analytics env block — not in top 10 (M/L, score 2.0)
+- Update `IMPLEMENTATION_STATUS.md` to reflect open security items (maps-config, predict/train) — not in top 10 (L/L, score 1.0)
+- Add docstrings to `chat.py:23`, `grounded_search.py:24`, `deep_analysis.py:18` route handlers describing auth, rate limit, Claude model used, and return shape — not in top 10 (L/L, score 1.0)
+- Add `///` doc comments to `broadcast.rs:create`, `spawn_ticker`, and type aliases; add `//!` crate-level doc to `src/main.rs` — not in top 10 (L/L, score 1.0)
+- Add JSDoc to all seven `services/aiService.ts` exports — not in top 10 (L/L, score 1.0)
+
 ### Run #10 — 2026-05-28 — Lens: Observability
 **Scope:** `geointellisense-analytics/app/main.py`, `app/middleware.py`, `app/cache.py`, `app/database.py`, `app/routes/health.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/predict.py`, `app/routes/grounded_search.py`, `app/routes/explore.py`, `app/routes/admin.py`, `app/ml/aqi_model.py`, `app/http_client.py`, `app/claude.py`; `geointellisense-ingestion/src/main.rs`, `src/routes/health.rs`, `src/routes/sse.rs`, `src/db/persist.rs`; `utils/errorHandling.ts`; `components/ErrorBoundary.tsx`; `docker-compose.yml`; `geointellisense-analytics/requirements.txt`; `geointellisense-ingestion/Cargo.toml`.
 
@@ -78,35 +112,8 @@ Last run: #10 — Lens: Observability
 - Add `--requirepass` to Redis in docker-compose and update `REDIS_URL` env vars — not in top 10 (M/M, score 1.0)
 - Add rate limit to `POST /api/chat/reset` and `POST /api/chat/session` — not in top 10 (M/M, score 1.0)
 
-### Run #8 — 2026-05-28 — Lens: Data pipeline integrity
-**Scope:** `geointellisense-ingestion/src/purpleair.rs`, `broadcast.rs`, `redis_cache.rs`, `usgs.rs`, `db/persist.rs`, `config.rs`; `geointellisense-analytics/app/http_client.py`; all 14 Python API clients (`airnow.py`, `epa_aqs.py`, `noaa_cdo.py`, `nws_sounding.py`, `calenviroscreen.py`, `calgem.py`, `caltrans.py`, `census.py`, `cropscape.py`, `dem.py`, `landsat.py`, `wqp.py`, `nasa_firms.py`, `usgs_water.py`); `app/source_toggles.py`; `app/routes/inversion.py`.
-
-**Findings:**
-
-- OBSERVATION: `geointellisense-ingestion/src/purpleair.rs:fetch_sensors` — the method creates `reqwest::Client::new()` and makes a single HTTP GET with no retry, no exponential backoff, and no timeout on the client. If PurpleAir API returns 5xx or the request hangs, the `Err(e)` branch in `broadcast.rs:spawn_ticker` logs `"PurpleAir fetch failed: {e}, cache unchanged"` and the in-memory cache stays stale for the full `purpleair_interval_secs` (default 600 s). On first startup before any successful fetch, the cache is `None`, so every broadcast tick falls back to mock data for 10+ minutes after any transient API failure.
-
-- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:spawn_ticker` and `spawn_earthquake_poller` — both polling loops call `redis_cache::is_source_enabled()` before fetching; the `else { continue; }` branch (Redis connection is `None`) skips the fetch entirely when Redis is unavailable. `redis_cache.rs:is_source_enabled` also returns `false` on missing keys (`Ok(None) | _ => false`). If Redis restarts (OOM kill, rolling restart), every toggle resets to `false` and both the PurpleAir loop and the earthquake loop silently stop fetching even if the external APIs are healthy. There is no "use last toggle state when Redis is down" logic. A Redis outage of any duration creates a silent AQI data gap until an admin POSTs to `/api/admin/sources/{source}/enable`.
-
-- OBSERVATION: `geointellisense-analytics/app/` — the shared `http_client.py` provides retry-with-backoff for 429 and 5xx, yet only **2 of 14 Python API clients** import it: `nasa_firms.py` (`from app.http_client import fetch as http_fetch`) and `usgs_water.py` (same). The remaining 12 clients — `airnow.py`, `epa_aqs.py`, `noaa_cdo.py`, `nws_sounding.py`, `calenviroscreen.py`, `calgem.py`, `caltrans.py`, `census.py`, `cropscape.py`, `dem.py`, `landsat.py`, `wqp.py` — all construct their own `httpx.AsyncClient(timeout=...)` inline and call `resp.raise_for_status()` directly with no retry. A single transient 503 from AirNow, NOAA CDO, CalGEM ArcGIS, Census API, or the NWS sounding service surfaces immediately as a 502 to the frontend.
-
-- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:spawn_earthquake_poller` — after `let events = usgs::fetch_and_persist(&pool).await`, the significant-event filter and cache write run unconditionally: `*quake_cache.write().await = significant;`. When `usgs::fetch_and_persist_bbox` encounters a network error it returns `Vec::new()` (`usgs.rs` → `Err(e) => { tracing::warn!(...); Vec::new() }`), so `significant` is always empty on failure. This overwrites the cache with an empty `Vec`, erasing all previously cached M3.0+ earthquakes. SSE clients lose their earthquake stream on every USGS network hiccup.
-
-- OBSERVATION: `geointellisense-analytics/app/clients/noaa_cdo.py:NoaaCdoClient._throttled_get` — the pagination loop is `while True:` with a `429` handler that does `await asyncio.sleep(2); continue` but carries **no per-request retry counter**. If NOAA CDO continuously returns 429 for a given offset, the loop runs forever. The `2.0`-second sleep also ignores the `Retry-After` header that CDO sets on 429 responses. Additionally, `resp.raise_for_status()` is called directly for 5xx — a single 503 from NOAA CDO aborts the entire historical fetch with no retry.
-
-- OBSERVATION: `geointellisense-analytics/app/clients/nws_sounding.py` and `routes/inversion.py` — the module docstring names OAK (Oakland) as a backup station, but `get_inversion_status()` calls `await fetch_sounding_850mb()` with the default `station=SOUNDING_STATION` (VBG) only. There is no fallback to OAK when all three `hours_back` attempts for VBG return `None` (balloon launch failure, parser failure, or server downtime). When this occurs `temp_850mb_c` is `None`, `temp_diff_c` is `None`, `classify_inversion(None)` returns `"unknown"`, and the `/api/weather/inversion-status` endpoint returns `inversionStrength: "unknown"` indefinitely rather than degrading gracefully to OAK data.
-
-- OBSERVATION: `geointellisense-analytics/app/clients/epa_aqs.py:EpaAqsClient._throttled_get` — `asyncio.get_event_loop().time()` is called at two points for rate-limit throttling. `asyncio.get_event_loop()` has been deprecated since Python 3.10 when called from inside a running coroutine and will raise `RuntimeError` in a future Python release. The correct replacement is `asyncio.get_running_loop().time()`.
-
-**Proposed actions:**
-- Add 3-attempt retry with exponential backoff to `PurpleAirClient::fetch_sensors` in `purpleair.rs`; add a `timeout(Duration::from_secs(30))` to the reqwest call → Active Recommendation #2
-- Change `broadcast.rs` source-toggle else-branch from `continue` to proceed with fetch (treat Redis-unavailable as "all sources enabled"), or cache the last-known toggle value in a local `HashMap` → Active Recommendation #3
-- Migrate `airnow.py` and `noaa_cdo.py` to `app.http_client.fetch` first (highest AQI impact); then remaining 10 clients — not in top 10 (H/H effort across 12 files, score 1.0)
-- Only overwrite `quake_cache` when `events` is non-empty in `broadcast.rs:spawn_earthquake_poller` → (demoted from Active this run due to new H/L security items)
-- Add retry counter to NOAA CDO `429` handler; honour `Retry-After` header — not in top 10 (M/M, score 1.0)
-- Add OAK station fallback to `get_inversion_status()` when VBG returns all-None → (demoted from Active this run due to new H/L security items)
-- Replace `asyncio.get_event_loop().time()` with `asyncio.get_running_loop().time()` in `epa_aqs.py` — not in top 10 (L/L, score 1.0)
-
 ## 📚 Archive (one line per past run)
+- Run #8 (2026-05-28) — Lens: Data pipeline integrity — 7 findings — 2 promoted to Active
 - Run #7 (2026-05-28) — Lens: UX / UI flaws — 8 findings — 1 promoted to Active
 - Run #6 (2026-05-28) — Lens: TS ↔ Python contract — 6 findings — 4 promoted to Active
 - Run #5 (2026-05-28) — Lens: Test coverage gaps — 7 findings — 2 promoted to Active
@@ -126,3 +133,4 @@ Last run: #10 — Lens: Observability
 - Run #8: lens 8 (Data pipeline integrity) — findings added
 - Run #9: lens 9 (Security) — findings added
 - Run #10: lens 10 (Observability) — findings added
+- Run #11: lens 11 (Docs) — findings added
