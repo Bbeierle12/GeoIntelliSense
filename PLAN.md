@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T13:10:00Z
-Last run: #9 — Lens: Security
+Last updated: 2026-05-28T14:10:00Z
+Last run: #10 — Lens: Observability
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -12,11 +12,41 @@ Last run: #9 — Lens: Security
 | 5 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
 | 6 | `GET /api/maps-config` exposes Google Maps API key to unauthenticated callers | Security | H | L | 9 | Open |
 | 7 | `POST /api/predict/train` is unauthenticated — any client can trigger expensive model retraining | Security | H | L | 9 | Open |
-| 8 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
-| 9 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
-| 10 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
+| 8 | No logging configuration in analytics `main.py` — all `logger.info/debug` calls silently dropped | Observability | H | L | 10 | Open |
+| 9 | Health checks return static `"ok"` without probing DB or Redis — failing containers pass healthcheck | Observability | H | L | 10 | Open |
+| 10 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #10 — 2026-05-28 — Lens: Observability
+**Scope:** `geointellisense-analytics/app/main.py`, `app/middleware.py`, `app/cache.py`, `app/database.py`, `app/routes/health.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/predict.py`, `app/routes/grounded_search.py`, `app/routes/explore.py`, `app/routes/admin.py`, `app/ml/aqi_model.py`, `app/http_client.py`, `app/claude.py`; `geointellisense-ingestion/src/main.rs`, `src/routes/health.rs`, `src/routes/sse.rs`, `src/db/persist.rs`; `utils/errorHandling.ts`; `components/ErrorBoundary.tsx`; `docker-compose.yml`; `geointellisense-analytics/requirements.txt`; `geointellisense-ingestion/Cargo.toml`.
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-analytics/app/main.py` — Zero logging configuration: no `logging.basicConfig()`, no format string, no root-logger handler, no `log_config` passed to `uvicorn.run()`. Every `logging.getLogger(__name__)` call across the codebase (`cache.py`, `http_client.py`, `predict.py`, `explore.py`, `aqi_model.py`, `middleware.py`) resolves to Python's `lastResort` handler (stderr, WARNING+ only). `logger.info("cache HIT ...")`, `logger.info("cache MISS ...")`, `logger.info("AQI model retrain complete: R²=%.4f", ...)`, `logger.debug(...)`, and `logger.warning("Rate limit check failed ...")` are all silently discarded at runtime. Uvicorn access log and error log also use the default (unformatted) Python logging because no `log_config` is supplied. No structured fields (request ID, session ID, endpoint, latency) appear in any log line.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/health.py:7-13` and `geointellisense-ingestion/src/routes/health.rs:8-15` — Both health endpoints return `{"status": "ok"}` unconditionally, with no dependency probe. The analytics `docker-compose.yml` healthcheck (`python -c urllib.request.urlopen('http://localhost:3002/api/health')`) passes even when the `asyncpg` pool is exhausted, when Redis is unreachable, or when `ANTHROPIC_API_KEY` is absent. The ingestion healthcheck (`curl -sf http://localhost:3001/health`) similarly passes when the PgPool or Redis connection is broken. Docker marks these containers `healthy` and Caddy continues routing traffic to them while their data dependencies are down.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/chat.py:57`, `deep_analysis.py:57`, `grounded_search.py` (final `except Exception as e` block), `predict.py:_run_training` (final `except Exception as e`) — All four 500-error paths call `traceback.print_exc()` directly, writing unformatted tracebacks to `sys.stderr`. They do not call `logger.exception(...)`, which would route the traceback through the logging system where a formatter, handler, or aggregator could capture it with structured fields. Because no root logger is configured (finding above), even switching to `logger.exception()` today would still drop the record; the two fixes are a coupled unit of work.
+
+- OBSERVATION: `geointellisense-analytics/app/middleware.py` and `app/main.py` — No request-correlation middleware exists. No `X-Request-ID` header is injected or propagated. Each chat request in `chat.py` triggers up to 5 tool-call rounds in `claude.py:execute_tool()`, each of which makes outbound `httpx` calls to internal and external endpoints; there is no shared identifier linking these sub-requests in logs. The Rust ingestion service logs `tracing::info!(client_id, "SSE client connected")` per client, but the Python analytics side has no equivalent per-request tracing context.
+
+- OBSERVATION: `geointellisense-analytics/requirements.txt` and `geointellisense-ingestion/Cargo.toml` — Neither service includes a metrics library (`prometheus-fastapi-instrumentator`, `metrics`, `opentelemetry`, etc.). No `/metrics` endpoint exists. There are no counters or gauges for: AQI ingestion events per source, Anthropic API call counts per model, Claude tool-call rounds per request, cache hit/miss ratio (logged but not aggregated), SSE client session counts, or external API error rates. `sse.rs:CLIENT_COUNT` is an `AtomicUsize` tracking total SSE clients since startup but its value is never surfaced through any endpoint or export.
+
+- OBSERVATION: `docker-compose.yml` — No `logging:` key is present for any of the four services (`db`, `redis`, `ingestion`, `analytics`). The default `json-file` driver applies with no `max-size` or `max-file` limits. Once logging is configured, the analytics service will emit one `cache HIT/MISS` line per cache read; the ingestion service emits one broadcast `tracing::info!` per tick at `BROADCAST_INTERVAL_SECS` (default 5 s), producing ~17,000 lines/day from that loop alone. On long-running deployments this exhausts disk space with no log rotation.
+
+- OBSERVATION: `utils/errorHandling.ts:193` (`logError()`) and `components/ErrorBoundary.tsx:componentDidCatch` — `logError()` contains the comment `// In production, you would send this to an error tracking service`. `ErrorBoundary.componentDidCatch` only calls `console.error('ErrorBoundary caught an error:', error, errorInfo)` with no external report. There is no Sentry, LogRocket, or Datadog integration, no `window.onerror` handler, and no `window.onunhandledrejection` listener anywhere in the frontend codebase. Browser-side JavaScript exceptions and React render errors are invisible outside the user's browser DevTools.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/predict.py` (`start_training` and `_run_training`) — `_train_status` is set to `{"state": "running", "minDays": min_days}` with no `startedAt` timestamp; the completion entry `{"state": "completed", "result": meta}` carries no `completedAt`. Operators polling `GET /api/predict/train/status` cannot determine how long training has been running or whether a `"running"` state is hung. The weekly `_retrain_loop()` has no status tracking at all — it produces no externally observable state between log lines (which are currently dropped, per finding #1).
+
+**Proposed actions:**
+- Add `logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")` (or JSON formatter via `python-json-logger`) to `geointellisense-analytics/app/main.py`; replace all `traceback.print_exc()` calls in `chat.py:57`, `deep_analysis.py:57`, `grounded_search.py`, `predict.py:_run_training` with `logger.exception(...)` → Active Recommendation #8
+- Extend `GET /api/health` (`health.py`) to `await pool.fetchval("SELECT 1")` and `await redis.ping()`, returning 503 on failure; extend ingestion `health::check()` to probe its `PgPool` and Redis connection → Active Recommendation #9
+- Add `X-Request-ID` middleware to `app/main.py` (generate UUID if absent, inject into `request.state`, include in all log records and responses) — not in top 10 (M/M, score 1.0)
+- Add `prometheus-fastapi-instrumentator` to `requirements.txt` and mount `/metrics` in `app/main.py`; expose `CLIENT_COUNT` from `sse.rs` via a `/metrics` route — not in top 10 (M/H, score 0.67)
+- Add `logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}` to all four services in `docker-compose.yml` — not in top 10 (M/L, score 2.0; demoted by earlier first-seen of item #10)
+- Add `startedAt` / `completedAt` ISO timestamps to `_train_status` dict in `predict.py` — not in top 10 (L/L, score 1.0)
+- Wire Sentry SDK in frontend (`@sentry/react`) and backend (`sentry-sdk[fastapi]`); replace `console.error` in `ErrorBoundary.componentDidCatch` and `logError()` — not in top 10 (M/H, score 0.67)
+
 ### Run #9 — 2026-05-28 — Lens: Security
 **Scope:** `app/middleware.py`, `app/config.py`, `app/main.py`, `app/routes/admin.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/predict.py`, `app/routes/maps_config.py`, `app/routes/ai_context.py`, `app/routes/explore.py`, `app/claude.py`; `src/routes/admin.rs`, `src/config.rs`; `docker-compose.yml`; `Caddyfile`.
 
@@ -76,38 +106,8 @@ Last run: #9 — Lens: Security
 - Add OAK station fallback to `get_inversion_status()` when VBG returns all-None → (demoted from Active this run due to new H/L security items)
 - Replace `asyncio.get_event_loop().time()` with `asyncio.get_running_loop().time()` in `epa_aqs.py` — not in top 10 (L/L, score 1.0)
 
-### Run #7 — 2026-05-28 — Lens: UX / UI flaws
-**Scope:** `index.html`; `components/AnalysisView.tsx`; `components/MapView.tsx`; `components/ChatView.tsx`; `components/LoadingStates.tsx`; `components/Toast.tsx`; `components/ErrorBoundary.tsx`; `components/dashboard/widgets/AqiForecastWidget.tsx`; `components/dashboard/widgets/InversionWidget.tsx`; `components/dashboard/widgets/AqiGaugeWidget.tsx`; `components/dashboard/WidgetShell.tsx`; `components/3d/UIPanels.tsx`; `styles/theme-light.css`; `contexts/UserPreferencesContext.tsx`.
-
-**Findings:**
-
-- OBSERVATION: `components/AnalysisView.tsx:450` — `dangerouslySetInnerHTML={{ __html: result.replace(/\n/g, '<br />') }}` renders the raw AI-returned analysis string as HTML with no sanitization beyond newline→`<br />` conversion. `result` comes from the Python analytics server which forwards Claude/Gemini output. If an adversarial prompt causes the model to emit HTML tags (e.g. `<img onerror="…">`, `<script>…</script>`), those tags execute in the browser with full DOM access. The only escape path is `DOMPurify.sanitize(result)` before injection, or switching to `whitespace-pre-wrap` text rendering (which also avoids the need for `<br />` replacement).
-
-- OBSERVATION: `components/MapView.tsx:253-264, 279-291, 305-317, 327-342, 354-367` — All five Google Maps `InfoWindow` popups are built by interpolating **server-returned external data** directly into raw HTML template literals. Specifically: `r.stationName` (PurpleAir station names, line ~255), `e.place` (USGS earthquake place-name string, line ~308), `w.name` / `w.operator` (CalGEM well names/operators, lines ~332-337), `w.siteName` (water quality site name, line ~358), and the `paramHtml` variable assembled from `Object.entries(w.parameters || {}).map(([name, p]) => …)` (line ~350-352, where `name` is a contaminant name from the backend). None of these values are HTML-escaped before insertion. A maliciously named station (`"><img src=x onerror=alert(1)>`) would execute in the info window's sandboxed but same-origin context. All info windows also hardcode `background:#0f172a;color:#cbd5e1` inline styles, so they remain permanently dark-themed in light mode, ignoring the `.light` class toggle controlled by `UserPreferencesContext`.
-
-- OBSERVATION: `components/LoadingStates.tsx:8, 26, 47, 71, 160, 180, 216` — Every skeleton loader and the `StatusDot` pulse use Tailwind's `animate-pulse` class with no `motion-safe:` prefix and no `@media (prefers-reduced-motion: reduce)` guard anywhere in the codebase. Tailwind provides first-class `motion-safe:animate-pulse` and `motion-reduce:animate-none` utilities for exactly this case. Users who enable `prefers-reduced-motion` in their OS receive continuous animation with no opt-out.
-
-- OBSERVATION: `components/ChatView.tsx:14` — `scrollToBottom` calls `messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })` unconditionally. There is no check for `window.matchMedia('(prefers-reduced-motion: reduce)').matches`; affected users experience motion on every AI response.
-
-- OBSERVATION: `components/dashboard/widgets/InversionWidget.tsx:26, 33, 37` — Three temperature values on the same card use two different unit systems: line 33 shows `surfaceTempF` in °F, line 37 shows `temp850mbC` in °C, line 26 shows `tempDiffC` in °C. The Python backend already returns both `surfaceTempC` and `surfaceTempF`; the widget should pick a consistent unit per `UserPreferencesContext.temperatureUnit`.
-
-- OBSERVATION: `components/dashboard/widgets/AqiForecastWidget.tsx:62` — "Top Drivers" feature names use `<span className="text-slate-400 w-28 truncate">` with no `title` attribute. Names like `"relative_humidity_percent"` are silently clipped with no hover disclosure.
-
-- OBSERVATION: `index.html:15` — Tailwind CSS is loaded from `https://cdn.tailwindcss.com` (the Play CDN, explicitly labelled "development only" in Tailwind docs). The ~313 KB CDN build attaches a `MutationObserver` that fires on every DOM update. Production builds should use `@tailwindcss/vite` for a tree-shaken ~8–20 KB static bundle.
-
-- OBSERVATION: `components/3d/UIPanels.tsx:352-355` — Camera-controls help text uses emoji glyphs (🖱️ ⚲ ⇧) as the sole representation of controls. These render as blank boxes on some Android WebViews and older Chrome builds, and have no `aria-label` alternatives for screen readers.
-
-**Proposed actions:**
-- Replace `dangerouslySetInnerHTML` with `DOMPurify.sanitize()` or plain-text rendering in `AnalysisView.tsx:450` → Active Recommendation #1
-- HTML-escape externally-sourced strings in `MapView.tsx` info windows — not in top 10 (M/M, score 1.0)
-- Replace `animate-pulse` with `motion-safe:animate-pulse motion-reduce:animate-none` across `LoadingStates.tsx` — not in top 10 (M/L=2.0, ties existing items)
-- Use reduced-motion-aware scroll in `ChatView.tsx:14` — not in top 10 (L/L, score 1.0)
-- Unify temperature units in `InversionWidget.tsx` via `UserPreferencesContext.temperatureUnit` — not in top 10 (M/L=2.0)
-- Add `title` attribute to truncated feature names in `AqiForecastWidget.tsx:62` — not in top 10 (L/L)
-- Replace Tailwind CDN with `@tailwindcss/vite` — not in top 10 (M/M, score 1.0)
-- Replace emoji control hints with labelled SVG icons in `UIPanels.tsx:352-355` — not in top 10 (L/L)
-
 ## 📚 Archive (one line per past run)
+- Run #7 (2026-05-28) — Lens: UX / UI flaws — 8 findings — 1 promoted to Active
 - Run #6 (2026-05-28) — Lens: TS ↔ Python contract — 6 findings — 4 promoted to Active
 - Run #5 (2026-05-28) — Lens: Test coverage gaps — 7 findings — 2 promoted to Active
 - Run #4 (2026-05-28) — Lens: Perf hot paths — 7 findings — 3 promoted to Active
@@ -125,3 +125,4 @@ Last run: #9 — Lens: Security
 - Run #7: lens 7 (UX / UI flaws) — findings added
 - Run #8: lens 8 (Data pipeline integrity) — findings added
 - Run #9: lens 9 (Security) — findings added
+- Run #10: lens 10 (Observability) — findings added
