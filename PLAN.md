@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T21:10:00Z
-Last run: #17 — Lens: Module boundaries
+Last updated: 2026-05-28T22:10:00Z
+Last run: #18 — Lens: Dependency health
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,31 @@ Last run: #17 — Lens: Module boundaries
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #18 — 2026-05-28 — Lens: Dependency health
+**Scope:** `package.json`, `package-lock.json` (lockfileVersion 3, 368 packages), `vite.config.ts`; `geointellisense-analytics/requirements.txt`; `geointellisense-ingestion/Cargo.toml`, `Cargo.lock`. Checked for `latest`-tag usage, deprecated packages (none found), bundle-size warnings, missing lock files, outdated pinned packages, and upper-bound version caps.
+
+**Findings:**
+
+- OBSERVATION: `package.json:19` — `"@googlemaps/markerclusterer": "latest"` is the only dependency across all three manifests (npm, pip, Cargo) that uses an unpinned `latest` tag instead of a semver range. The lock file currently resolves it to `2.6.2`, but a `docker build --no-cache`, a fresh `npm install` after deleting `package-lock.json`, or a new contributor setup could resolve to a different major version without any manifest change. All 14 other npm dependencies use `^`, `~`, or `>=` range specifiers. The fix is to replace `"latest"` with `"^2.6.2"` (or the latest stable semver range).
+
+- OBSERVATION: `vite.config.ts:24,37` — The `manualChunks` entry at line 24 carries an inline comment "Split Three.js + React Three Fiber into its own chunk (~800KB)", while `chunkSizeWarningLimit` on line 37 is set to `500` (KB). Since the three-vendor chunk is explicitly acknowledged to be ~800KB, this limit is exceeded on every production build, emitting a Rollup chunk-size warning that developers have tacitly conditioned themselves to ignore. Either the limit should be raised to `≥800` to reflect the known size, or the 3D feature components (`components/3d/AQI3DScene.tsx`, `CityMarkers.tsx`, `TerrainMesh.tsx`, etc.) should be wrapped in `React.lazy()` so the `three`/`@react-three/fiber`/`@react-three/drei` bundle becomes a route-level on-demand chunk — reducing initial page load by ~800KB for users who never navigate to the 3D map view.
+
+- OBSERVATION: `geointellisense-analytics/requirements.txt` — All 18 dependencies use `.*` or `>=X,<Y` ranges (e.g. `fastapi==0.115.*`, `polars==1.24.*`, `numpy>=1.26,<2.1`), but no lock file (`requirements.lock`, `uv.lock`, or `pip-tools`-generated `requirements.in`/`requirements.txt` pair) is committed. The ingestion service has `Cargo.lock` committed and reproducible builds. The analytics service does not: two Docker builds a week apart could install different patch releases of `polars`, `psycopg`, `pydantic`, etc. (polars 1.24.3 vs 1.24.9 changed pickle compatibility between patch releases). The fix is to run `pip-compile` (pip-tools) or `uv pip compile` to generate a pinned `requirements.lock` and commit it alongside `requirements.txt`.
+
+- OBSERVATION: `geointellisense-analytics/requirements.txt:9` — `anthropic==0.49.*` is pinned to a minor version released in early 2025, now at least 3 minor versions behind the current SDK (0.52+ as of mid-2025). The `geointellisense-analytics/app/routes/deep_analysis.py:34,62` hardcodes the model string `"claude-opus-4-6"` — a non-dated model identifier that differs from the standard dated format used elsewhere (`"claude-sonnet-4-20250514"` in `chat.py:44`). If `claude-opus-4-6` is only recognized by SDK ≥0.50, then the `anthropic==0.49.*` pin causes a silent API-level failure (the SDK sends the string to the API, which rejects it with a `404` or `invalid_model` error rather than a Python import error). Updating `anthropic` to `==0.52.*` and auditing all model strings for consistency across routes is a single low-effort change.
+
+- OBSERVATION: `geointellisense-ingestion/Cargo.toml:15` — `rand = "0.8"`, locked at `0.8.5`. The `rand` crate published version 0.9.0 in February 2025, a major release that deprecated the module-level `rand::random()` shorthand and moved it behind `rand::rng()`. The SemVer declaration `"0.8"` will never auto-resolve to 0.9, so `cargo update` silently leaves the crate at 0.8.5 indefinitely. The usage is confined to the SSE mock-data fallback path in `broadcast.rs` (non-production path), making the upgrade low-risk: replace `rand::thread_rng().gen_range(...)` with `rand::rng().random_range(...)` and bump `Cargo.toml:15` to `"0.9"`.
+
+- OBSERVATION: `geointellisense-analytics/requirements.txt:16-18` — Upper-bound caps `scipy>=1.13,<1.15` and `scikit-learn>=1.5,<1.7` prevent adoption of already-released patch and minor versions within those respective families. `scipy 1.14.x` is the last version installable; `scipy 1.15.x` releases (which contain numerical stability fixes in sparse solvers used by scikit-learn's `BayesianRidge` and `ARDRegression` models used in `app/ml/aqi_model.py`) are blocked. If a transitive dependency (e.g. a future `polars` or `geopandas` release) requires `scipy>=1.15`, pip resolution will fail at install time with an `ERROR: Cannot install ... because these package versions have conflicting dependencies` message — a runtime-deploy-blocking failure. The upper bounds should be relaxed to `<2.0` (or removed) after verifying test suite passes on the newer versions.
+
+**Proposed actions:**
+- Replace `"latest"` with `"^2.6.2"` for `@googlemaps/markerclusterer` in `package.json:19` — L/L, score 1.0; does not enter top 10
+- Raise `chunkSizeWarningLimit` in `vite.config.ts:37` to `1000` to suppress the expected three-vendor warning, and/or wrap `components/3d/` in `React.lazy()` for on-demand loading — M/M, score 1.0; does not enter top 10
+- Run `uv pip compile requirements.txt -o requirements.lock` and commit the lock file for the analytics service — M/L, score 2.0; does not enter top 10
+- Bump `anthropic==0.49.*` → `==0.52.*` in `requirements.txt`; audit `deep_analysis.py:34` model string `"claude-opus-4-6"` against the SDK's supported model list — M/L, score 2.0; does not enter top 10
+- Bump `rand = "0.8"` → `"0.9"` in `Cargo.toml:15`; update `broadcast.rs` call sites to `rand::rng().random_range(...)` — L/L, score 1.0; does not enter top 10
+- Relax `scipy<1.15` and `scikit-learn<1.7` upper-bound caps in `requirements.txt:17-18`; re-run `app/ml/aqi_model.py` test suite on updated versions — M/L, score 2.0; does not enter top 10
+
 ### Run #17 — 2026-05-28 — Lens: Module boundaries
 **Scope:** All `.ts` and `.tsx` files in `components/`, `hooks/`, `services/`, `data/`, `utils/`, `contexts/`, and root on `origin/main`; full import graph traversal; `geointellisense-analytics/app/` Python route imports; `geointellisense-ingestion/src/` Rust module declarations. Checked for circular deps (A→B→A chains), leaky abstractions, layer violations, and type co-location issues.
 
@@ -71,29 +96,8 @@ Last run: #17 — Lens: Module boundaries
 - Replace `catch (e: any)` in `AnalysisView.tsx:255` with `catch (e: unknown)` + `toDataServiceError(e).getUserMessage()` — L/L, score 1.0; not in top 10
 - Narrow `ExploreResponse.data` in `DataExplorer.tsx:42` to `Array<{ time: string } & Record<string, number | null>>` — M/L, score 2.0; not in top 10
 
-### Run #15 — 2026-05-28 — Lens: Live-time claim audit
-**Scope:** `components/dashboard/LiveDashboard.tsx`, `components/Dashboard.tsx`, `components/AirQualityMapView.tsx`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`, `hooks/useDashboardData.ts`, `data/dashboardData.ts`, `services/dataService.ts`, `geointellisense-ingestion/src/broadcast.rs`, `geointellisense-ingestion/src/config.rs`, `docker-compose.yml`, `geointellisense-analytics/app/context.py`, `geointellisense-analytics/app/claude.py`
-
-**Findings:**
-
-- OBSERVATION: `components/Dashboard.tsx:367` — The "Regional Air Quality Index" panel carries the subtitle "Real-time AQI and PM2.5 levels across major cities." The data rendered by this panel comes from `dataService.getCurrentAQI()` (`services/dataService.ts:104`), which on any network or backend failure immediately falls back to hardcoded values in `data/dashboardData.ts` (`dataService.ts:128-136`). `dashboardData.ts:1` is explicitly labeled "This file centralizes the mock data for the dashboard." The fallback values — e.g., Bakersfield AQI 155, Fresno AQI 140 — are compile-time constants. No visual indicator distinguishes the live-fetch path from the mock-fallback path, so users reading "Real-time AQI" may be looking at values that are months old.
-
-- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:83-90` + `config.rs:19-22` + `docker-compose.yml` — The broadcast ticker loop overwrites every reading's `timestamp` field with `chrono::Utc::now()` before each broadcast: `live.iter().map(|r| AqiReading { timestamp: now, ..r.clone() })`. The PurpleAir fetch interval defaults to 600 seconds (`config.rs:20`: `unwrap_or(600)`; confirmed by `docker-compose.yml`: `PURPLEAIR_INTERVAL_SECS: ${PURPLEAIR_INTERVAL_SECS:-600}`). Consequently every SSE event arriving at the browser carries a `timestamp` at most a few milliseconds old, while the `aqi`, `pm25`, and other sensor fields inside it may be up to 10 minutes stale. `AirQualityMapView.tsx:413` displays `{isConnected ? '🔴 Live' : 'Last Updated'}` — when connected, the "🔴 Live" badge is shown regardless of sensor age. The comment at `AirQualityMapView.tsx:4` ("With real-time data streaming via SSE") and the tooltip at `:177` ("Real-time data from EPA monitoring station") similarly overstate data freshness.
-
-- OBSERVATION: `geointellisense-analytics/app/context.py:20` — `SOURCE_INTERVALS["purpleair"] = 120` declares the expected PurpleAir update cadence as 2 minutes. The staleness guard at `context.py:37` marks data stale when `age_seconds > interval * 2` (threshold: 240 seconds). Under the default deployment the actual poll interval is 600 seconds (`PURPLEAIR_INTERVAL_SECS=600`). At any random moment between polls, PurpleAir data in the DB is between 0 and 600 seconds old; any reading older than 240 seconds — the majority at any given moment in steady state — is classified as `"stale"` and triggers the Claude system prompt warning "STALE data sources (may be outdated): purpleair." This means that in a default deployment, virtually every AI chat request injects a staleness caveat for PurpleAir data even when the data is as fresh as the intended 10-minute interval allows, unnecessarily degrading Claude's confidence and response quality. The fix is one character: change `context.py:20` to `"purpleair": 600`.
-
-- OBSERVATION: `hooks/useDashboardData.ts` — This hook, which drives all historical trend charts on the Dashboard page (humidity, wind, UV index, historical AQI, agricultural metrics), contains zero API calls. It imports `dashboardData` from `data/dashboardData.ts` and performs only in-memory aggregations. All data presented is from the pre-baked 12-month range "Jul '23" through "Jun '24" embedded in the source file. There is no UI indicator — no "Last updated" timestamp, no "(historical mock data)" label — to distinguish these static trend charts from genuinely live or fetched data.
-
-- OBSERVATION: `hooks/useRealtimeAQI.ts` (lines ~180-210) — After `maxReconnectAttempts` (default 10) consecutive SSE failures, `startMockData()` is called, which generates AQI values using `Math.random()` for 6 hardcoded city entries. The 3D map view at `AirQualityMapView.tsx:203` is initialized with `fallbackToMock: true`, meaning this switch happens automatically on any sustained SSE outage. The `isConnected` flag flips to `false`, causing `AirQualityMapView.tsx:413` to render "Last Updated" instead of "🔴 Live" — the primary live-state indicator does correctly reflect the disconnect. However, the 3D visualization continues to animate with plausible-looking per-city AQI values (e.g., "Bakersfield: 95 ± random") without any persistent "SIMULATED DATA" watermark. A user who notices the status line switch but remains watching the 3D scene has no persistent visual cue that the moving data is random noise.
-
-**Proposed actions:**
-- Fix `context.py:20`: change `"purpleair": 120` → `"purpleair": 600` to match the actual default polling interval; this eliminates the always-stale classification of PurpleAir under standard deployment — H/L, score 3.0; ties all existing top-10 rows (first-seen #15 > first-seen #1–13); does not displace
-- Stop overwriting sensor timestamps in `broadcast.rs:83-90`: preserve the original sensor `timestamp` and add a separate `broadcastAt` field so "🔴 Live" indicators can display the true sensor-read time rather than the broadcast time — H/L, score 3.0; ties; does not displace
-- Replace "Real-time AQI and PM2.5 levels across major cities." at `Dashboard.tsx:367` with "Latest AQI and PM2.5 levels" and append a `(data as of <timestamp>)` annotation; show "Using cached data" when the fallback activates — M/L, score 2.0
-- Add a `useDashboardData` note or UI badge "(Historical data: Jul '23–Jun '24)" to trend charts driven purely from `data/dashboardData.ts` — M/L, score 2.0
-- Add a full-viewport "SIMULATED DATA" overlay badge in `AirQualityMapView.tsx` when `useRealtimeAQI` is in mock mode (detect via `error === 'Using simulated data (server unavailable)'`) — M/L, score 2.0
-
 ## 📚 Archive (one line per past run)
+- Run #15 (2026-05-28) — Lens: Live-time claim audit — 5 findings — 0 promoted to Active
 - Run #14 (2026-05-28) — Lens: Competitive scan (web) — 7 findings — 0 promoted to Active
 - Run #13 (2026-05-28) — Lens: LLM integration quality — 8 findings — 0 promoted to Active
 - Run #12 (2026-05-28) — Lens: Deployment / Docker — 7 findings — 0 promoted to Active
@@ -127,3 +131,4 @@ Last run: #17 — Lens: Module boundaries
 - Run #15: lens 15 (Live-time claim audit) — findings added
 - Run #16: lens 1 (Type safety) — findings added
 - Run #17: lens 2 (Module boundaries) — findings added
+- Run #18: lens 3 (Dependency health) — findings added
