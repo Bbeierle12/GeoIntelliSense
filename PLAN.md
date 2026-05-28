@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T20:05:00Z
-Last run: #16 — Lens: Type safety
+Last updated: 2026-05-28T21:10:00Z
+Last run: #17 — Lens: Module boundaries
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,29 @@ Last run: #16 — Lens: Type safety
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #17 — 2026-05-28 — Lens: Module boundaries
+**Scope:** All `.ts` and `.tsx` files in `components/`, `hooks/`, `services/`, `data/`, `utils/`, `contexts/`, and root on `origin/main`; full import graph traversal; `geointellisense-analytics/app/` Python route imports; `geointellisense-ingestion/src/` Rust module declarations. Checked for circular deps (A→B→A chains), leaky abstractions, layer violations, and type co-location issues.
+
+**Findings:**
+
+- OBSERVATION: `data/dashboardData.ts:1` carries the comment "This file centralizes the mock data for the dashboard" and `services/dataService.ts:3` annotates it "Keep for fallback," using it only inside catch blocks at lines ~116 and ~162. Despite this intended internal-only status, the module is imported directly by `components/Dashboard.tsx:12`, `components/AirQualityMapView.tsx:1`, `components/AnalysisView.tsx:27`, `contexts/UserPreferencesContext.tsx:2`, and `hooks/useDashboardData.ts:2` — five non-service consumers. The exported `LocationKey` type (line ~1151, `export type LocationKey = keyof typeof dashboardData`) has become a de-facto public API used across context and component props, coupling the entire component layer to a module whose primary content is static mock data. This is the structural root cause of the live-vs-mock data confusion found in Run #15: components can render mock data directly without passing through `dataService`'s fallback guard.
+
+- OBSERVATION: `components/AnalysisView.tsx:12-17` imports six raw functions from `services/aiService` — `getGroundedSearchResponse`, `getGroundedMapsResponse`, `getLowLatencyResponse`, `getDeepAnalysisResponse`, `getPredictiveAnalysisResponse`, `getWeatherForecastResponse` — with no intermediate hook. State is set directly from service responses at lines 91 (`setResult(...)`) and 136 (`setGroundingChunks(...)`), and error/loading management is implemented inline within the component. `components/ChatView.tsx:2` and `components/DataExplorer.tsx:3` also import from `services/aiService` directly. This means three separate components independently re-implement error handling, loading state, and response parsing for semantically identical "call AI service" operations, with no shared abstraction point where a retry policy, timeout, or cancellation token could be applied consistently.
+
+- OBSERVATION: Root `types.ts` co-locates four unrelated type families: `ViewType` (a page-routing union used in `App.tsx`), `AnalysisTool` (an analysis-feature-only enum used solely in `components/AnalysisView.tsx`), `GroundingChunk` (an AI service response shape consumed by `services/aiService.ts` and `components/AnalysisView.tsx`), and `ChatMessage` (a chat-session shape consumed by `services/aiService.ts` and `components/ChatView.tsx`). The placement of `GroundingChunk` and `ChatMessage` in the global root type file means `services/aiService.ts` must import from the root rather than owning its own response types, inverting the natural dependency direction (feature module → root instead of root → feature module).
+
+- OBSERVATION: `components/MapView.tsx` calls `fetch()` directly at approximately lines 101–106 to retrieve `/api/maps-config`, while every other data operation in the same file is abstracted through `useLiveData`, `useAqiSnapshot`, and `useViewport` hooks. There is no `useMapConfig` hook and no service function for this endpoint. This is the same endpoint flagged in Active Recommendations row #6 (Google Maps API key returned to unauthenticated callers): because the call is an inline `fetch` with no wrapper, there is no single interception point to add an Authorization header, cache the response, or suppress the call for unauthenticated users.
+
+- OBSERVATION: **No circular dependencies (A→B→A chains) were found in any layer.** TypeScript: the import graph is strictly acyclic — the only service-to-service import is `services/dataService.ts` importing `AirQualityService` and `WeatherService` (a documented one-directional facade). Python: the 25+ route modules in `geointellisense-analytics/app/routes/` share `app.claude`, `app.cache`, and `app.database` infrastructure but do not import each other. Rust: module dependencies follow a clean unidirectional chain (`main → broadcast → {aqi, usgs, db, redis_cache}`) with no back-edges.
+
+**Proposed actions:**
+- Extract `LocationKey` type and `locations` array from `data/dashboardData.ts` (line ~1151) into `types/locations.ts`; update the 4 direct component/context import sites; restrict `data/dashboardData.ts` imports to `services/dataService.ts` only — M/L, score 2.0; does not enter top 10 (all existing rows H/L = 3.0)
+- Create `hooks/useAnalysis.ts` wrapping the 6 `aiService` function calls with unified error/loading/cancellation state; update `components/AnalysisView.tsx:12-17` and `components/DataExplorer.tsx:3` to use the hook — M/M, score 1.0; does not enter top 10
+- Create `hooks/useChat.ts` wrapping `getChatResponse`; update `components/ChatView.tsx:2` — M/L, score 2.0; does not enter top 10
+- Create `hooks/useMapConfig.ts` wrapping the direct `fetch('/api/maps-config')` in `MapView.tsx:101`; this also provides the single interception point needed to fix Active Recommendations row #6 (add auth check before returning key) — M/L, score 2.0; does not enter top 10
+- Split `types.ts` into `types/ui.ts` (`ViewType`, `TemperatureUnit`), `types/analysis.ts` (`AnalysisTool`, `GroundingChunk`), `types/chat.ts` (`ChatMessage`); update all import sites — M/M, score 1.0; does not enter top 10
+- No circular dependency remediation needed: none found
+
 ### Run #16 — 2026-05-28 — Lens: Type safety
 **Scope:** All 23 `.ts` and 41 `.tsx` files on `origin/main`; `tsconfig.json`; searched for `: any`, `as any`, `<any>`, `Record<string, any>`, implicit parameter annotations, `@ts-ignore`, and `@ts-nocheck` directives.
 
@@ -70,36 +93,8 @@ Last run: #16 — Lens: Type safety
 - Add a `useDashboardData` note or UI badge "(Historical data: Jul '23–Jun '24)" to trend charts driven purely from `data/dashboardData.ts` — M/L, score 2.0
 - Add a full-viewport "SIMULATED DATA" overlay badge in `AirQualityMapView.tsx` when `useRealtimeAQI` is in mock mode (detect via `error === 'Using simulated data (server unavailable)'`) — M/L, score 2.0
 
-### Run #14 — 2026-05-28 — Lens: Competitive scan (web)
-**Scope:** Web research (Exa search + fetch) on AQI+AI competitors; codebase read via `git show origin/main` of `geointellisense-ingestion/src/aqi.rs`, `purpleair.rs`, `usgs.rs`, `geointellisense-analytics/app/routes/` directory listing, `app/routes/fires.py`, `enviroscreen.py`, `calgem.py`, `cropscape.py`, `traffic.py`; cross-referenced against prior run findings in Active Recommendations.
-
-**Findings:**
-
-- OBSERVATION: `geointellisense-ingestion/src/aqi.rs:53-87` — The fallback AQI source is 11 hardcoded mock stations in Fresno, Kings, Tulare, and Kern counties when `PURPLEAIR_API_KEY` is absent. Meanwhile SJVAir (`sjvair.com`), operated by the Central California Asthma Collaborative, exposes a public Django REST API (`github.com/SJVAir/sjvair.com`, last pushed 2026-03-31) that aggregates PurpleAir + AirGradient + AirNow + CARB AQview (AB 617 regulatory-grade) across all 8 SJV counties (San Joaquin, Stanislaus, Merced, Madera, Fresno, Tulare, Kings, Kern). Adding a `SjvAirClient` in Rust alongside the existing `purpleair.rs` pattern would add 100+ reference-grade and community monitors, dramatically improving geographic and data-quality coverage with no API key cost. This is the most directly relevant missed data source for a product focused on the San Joaquin Valley.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/` (30 routes listed) — No route provides CSV, JSON, or PDF data export. Competitors Airly Data Platform, Aethair/Environet, MySensees, and Airqoon LensAI consider data export (CSV/PDF/Excel) table-stakes for environmental monitoring. The historical AQI data is already persisted in TimescaleDB via `geointellisense-ingestion/src/db/`. A `GET /api/export/aqi?format=csv&start=YYYY-MM-DD&end=YYYY-MM-DD` endpoint using FastAPI `StreamingResponse` + Python's `csv.writer` would require ~50 lines of new code and no new dependencies. For SJV environmental justice organizations, health researchers, and regulatory agencies, downloadable data is a prerequisite for engagement.
-
-- OBSERVATION: `geointellisense-analytics/app/routes/` — No burn-day status route exists despite "Check Before You Burn" (CBYB) being the single most-used feature of the Valley Air District's competing official app (`play.google.com/store/apps/details?id=com.valleyair.ValleyAir`). California Health & Safety Code §41505.5 mandates the SJVAPCD to publish a daily residential wood-burning advisory for each of the 8 SJV counties during the November–February inversion season. During winter, wood smoke is the dominant PM2.5 source in the valley. The advisory is available from `valleyair.org` as a parseable web endpoint; a `app/routes/burn_status.py` that fetches and caches the daily per-county flag would be ~40-60 lines. This is a direct SJV-specific feature gap vs. the incumbent authority app.
-
-- OBSERVATION: SJVAir integrates the **TEMPO NASA geostationary satellite** (hourly ozone, NO₂, and formaldehyde measurements across North America from geostationary orbit) and **NOAA HMS Fire & Smoke** (smoke plume extent polygons derived from GOES satellites). GeoIntelliSense uses NASA FIRMS for fire hotpoints (`geointellisense-ingestion/src/main.rs`, `app/routes/fires.py`) but FIRMS produces fire detection points, not smoke plume polygons. HMS smoke plume data (NOAA HMS: `satepsanone.nesdis.noaa.gov`) would indicate which SJV communities are downwind of smoke — a different and complementary signal from fire hotpoints. TEMPO NO₂ provides continuous inter-station coverage the PurpleAir network cannot. Neither is ingested.
-
-- OBSERVATION: `geointellisense-analytics/app/claude.py:52` — `get_system_with_live_context(base_system)` injects sensor data (AQI readings, earthquake, fire, water, forecast) but no user-health context. Competitors EnviroCopilot, NowPatient, and AirTrack personalize AQI alerts and recommendations by user health conditions (asthma, COPD, cardiovascular disease, allergies). GeoIntelliSense has no user profile endpoint, no health condition field in any Pydantic model, and no health-context injection into any Claude call. Since Claude is already interpreting AQI data, adding a profile requires: (a) a `POST /api/user/profile` CRUD endpoint storing `{conditions, age_group, sensitive}` in Redis alongside session history, and (b) prepending that context to `SJV_SYSTEM` in `get_system_with_live_context()`. The AI response quality for at-risk SJV residents (asthma prevalence in SJV is among the highest in the US) would substantially improve.
-
-- OBSERVATION: `app/routes/calgem.py`, `app/routes/cropscape.py`, `app/routes/traffic.py`, `app/routes/fires.py` — GeoIntelliSense ingests data from four distinct pollution source categories (oil/gas, agriculture, traffic, fires) but exposes them only as isolated data routes with no source-attribution layer. EcoPulse AI (a competing platform) performs real-time root-cause attribution quantifying traffic vs. industry contributions to current AQI, and Aclima (September 2024 CARB $27M Statewide Mobile Monitoring Initiative contract) maps block-level source contributions across disadvantaged communities. GeoIntelliSense's data assets (CalGEM, CropScape, traffic, FIRMS) are all present but never cross-correlated against current AQI readings to produce a "% attributed to each source" metric. This requires either dispersion modeling or a trained attribution ML model and is a longer-term effort.
-
-- OBSERVATION: SJVAir, the Valley Air District app (official SJVAPCD), AirNow (EPA push notification update, Dec 2024), and IQAir all provide threshold-triggered push or email notifications — considered baseline for any air quality product. GeoIntelliSense has no notification infrastructure: no `/api/subscriptions` endpoint, no email integration (SMTP/SendGrid), no FCM/APNs push, and no TimescaleDB trigger or background worker for threshold detection. The Valley Air District app specifically features `Receive alerts during unique air quality episodes` as a core feature; for SJV residents who face sudden smoke events, inversions, and agricultural burns, reactive "check the app" UX is a significant disadvantage.
-
-**Proposed actions:**
-- Add `SjvAirClient` Rust struct in `geointellisense-ingestion/src/sjvair.rs` following the pattern of `purpleair.rs`, calling `api.sjvair.com` to ingest regulatory + community monitor data for all 8 SJV counties — H/L, score 3.0; ties with existing top-10 rows (all H/L, first-seen #1-13); does not displace
-- Add `GET /api/export/aqi` route in `geointellisense-analytics/app/routes/` with `format=csv` and date-range params, using `StreamingResponse` and `csv.writer` — H/L, score 3.0; ties; does not displace
-- Add `app/routes/burn_status.py` fetching SJVAPCD CBYB daily per-county advisory from `valleyair.org`, cached in Redis with 6-hour TTL — H/L, score 3.0; ties; does not displace
-- Add NOAA HMS smoke plume polygon ingestion route (Python `app/routes/hms_smoke.py`) to complement existing FIRMS fire-point data — M/L, score 2.0
-- Add user health profile CRUD (`POST /api/user/profile`, `GET /api/user/profile`) storing conditions in Redis and injecting into `get_system_with_live_context()` — H/M, score 1.5
-- Ingest TEMPO satellite NO₂/O₃ data via NASA Earthdata API into a new analytics route — M/M, score 1.0
-- Implement pollution source attribution engine correlating CalGEM + CropScape + traffic + FIRMS vs. real-time AQI — M/H, score 0.67
-- Implement threshold-triggered push/email notifications (Redis Pub/Sub → worker → SendGrid) — H/H, score 1.0
-
 ## 📚 Archive (one line per past run)
+- Run #14 (2026-05-28) — Lens: Competitive scan (web) — 7 findings — 0 promoted to Active
 - Run #13 (2026-05-28) — Lens: LLM integration quality — 8 findings — 0 promoted to Active
 - Run #12 (2026-05-28) — Lens: Deployment / Docker — 7 findings — 0 promoted to Active
 - Run #11 (2026-05-28) — Lens: Docs — 10 findings — 0 promoted to Active
@@ -131,3 +126,4 @@ Last run: #16 — Lens: Type safety
 - Run #14: lens 14 (Competitive scan) — findings added
 - Run #15: lens 15 (Live-time claim audit) — findings added
 - Run #16: lens 1 (Type safety) — findings added
+- Run #17: lens 2 (Module boundaries) — findings added
