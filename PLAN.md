@@ -1,22 +1,50 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T09:12:00Z
-Last run: #5 — Lens: Test coverage gaps
+Last updated: 2026-05-28T10:07:14Z
+Last run: #6 — Lens: TS ↔ Python contract
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
 |---|-------|------|----------------|----------------|--------------------|--------|
-| 1 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
-| 2 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
-| 3 | Extract shared base URL config module | Module boundaries | M | L | 2 | Open |
-| 4 | Use `asyncio.gather` in `build_live_context` | Perf | M | L | 4 | Open |
-| 5 | Reuse `THREE.Vector3` ref in `CameraController.useFrame` | Perf | M | L | 4 | Open |
-| 6 | Replace `toLocaleDateString` with month-lookup array in `useDashboardData` | Perf | M | L | 4 | Open |
-| 7 | Dispose `THREE.Line` objects created in `Streamline` JSX | Perf | M | L | 4 | Open |
+| 1 | Propagate `sessionId` through chat calls in `aiService.ts` | TS↔Py contract | H | L | 6 | Open |
+| 2 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
+| 3 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
+| 4 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
+| 5 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
+| 6 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
+| 7 | Use `asyncio.gather` in `build_live_context` | Perf | M | L | 4 | Open |
 | 8 | Add Vitest coverage thresholds to `vite.config.ts` | Test coverage | M | L | 5 | Open |
 | 9 | Add unit tests for `interpolation.ts`, `weatherUtils.ts`, `colorScales.ts` pure functions | Test coverage | M | L | 5 | Open |
 | 10 | Upgrade Anthropic Python SDK from `0.49.*` to `>=0.50` | Dep health | M | L | 3 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #6 — 2026-05-28 — Lens: TS ↔ Python contract
+**Scope:** `types.ts`, `services/dataService.ts`, `services/aiService.ts`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`; Python routes `chat.py`, `grounded_search.py`, `grounded_maps.py`, `historical_aqi.py`, `historical_weather.py`, `predictive_analysis.py`, `weather_forecast.py`, `nws_forecast.py`, `predict.py`, `inversion.py`; Rust structs `aqi.rs` (`AqiReading`), `routes/aqi.rs` (`SnapshotResponse`); Python `clients/nws_sounding.py` (`InversionStatus.to_dict`, `_wrap_status`); Python `ml/aqi_model.py` (`predict_aqi`).
+
+**Findings:**
+
+- OBSERVATION: `services/aiService.ts:getChatResponse` — the function posts `{ message }` with no `session_id` field. Python `geointellisense-analytics/app/routes/chat.py:ChatRequest` accepts `session_id: str | None` and returns `{ "text": text, "sessionId": session_id }`. TypeScript only reads `data.text` and discards `sessionId`. Because `session_id` is never sent in subsequent calls, the Python handler calls `create_session()` on every request (line: `session_id = req.session_id or create_session()`). The multi-turn session history that `append_to_session` / `get_session_history` manage is permanently lost between calls: every user message starts a fresh conversation with no prior context.
+
+- OBSERVATION: `hooks/useLiveData.ts:PredictionResult` — TypeScript declares `trainedAt: string` as a required field (line ~83). Python `geointellisense-analytics/app/ml/aqi_model.py:predict_aqi` (lines ~return dict) does NOT include `trainedAt` in its return value — the dict contains `predictedAqi`, `confidenceInterval`, `category`, `horizon`, `modelR2`, `modelMAE`, `topFactors`, and `currentFeatures`. `trainedAt` is available in `get_model_status()` but is never forwarded by `/api/predict/aqi`. Any component that renders `result.trainedAt` receives `undefined` at runtime with no type error. Additionally, Python returns `currentFeatures: dict` (the raw feature vector used for prediction) which has no corresponding declaration in `PredictionResult`, so this diagnostic field is silently discarded.
+
+- OBSERVATION: `hooks/useRealtimeAQI.ts` — the inline `aqi-update` event type (lines ~180-197) declares: `stationId`, `stationName`, `lat`, `lng`, `county`, `timestamp`, `aqi`, `pm25`, `pm10`, `o3`, `no2`, `so2`, `co`, `temperature`, `humidity`, `windSpeed`, `windDirection`. Rust `geointellisense-ingestion/src/aqi.rs:AqiReading` (`#[serde(rename_all = "camelCase")]`) also emits: `category` (e.g. "Moderate"), `color` (hex e.g. "#ffff00"), `source` ("mock" or "purpleair"), and optionally `rawSensorCount`. These four fields are absent from the TypeScript inline type. The mapping to `RealtimeCityData` (lines ~200-213) never reads them. The 3D view therefore cannot distinguish mock from live PurpleAir data, and discards the EPA-authoritative category/color in favour of recomputing them locally in `colorScales.ts`.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/historical_weather.py:historical_weather` — every record in the response includes `"totalPrecipitation": 0.0` unconditionally (line ~`"totalPrecipitation": 0.0,  # sensor_readings doesn't have precip; placeholder`). TypeScript `services/dataService.ts:HistoricalWeatherRecord.totalPrecipitation: number` gives no indication to callers that the value is always zero. Components consuming the live endpoint receive silent zeros for all precipitation data. The fallback in `DataService.getHistoricalWeatherFallback` generates random synthetic precipitation values using `Math.random()`, meaning the mock path inadvertently produces more realistic-looking data than the live path.
+
+- OBSERVATION: `services/aiService.ts:getGroundedSearchResponse` / `getGroundedMapsResponse` — both functions read `data.groundingChunks` from the response (lines ~36, ~55). Python `geointellisense-analytics/app/routes/grounded_search.py` returns `{"text": text, "groundingChunks": []}` and `grounded_maps.py` identically returns `{"text": text, "groundingChunks": []}` — both routes hard-code an empty list. TypeScript `types.ts:GroundingChunk` defines a complex interface with `web.uri`, `web.title`, `maps.uri`, `maps.placeAnswerSources`, etc. This interface describes citations that can never be populated via the current Python backend.
+
+- OBSERVATION: `hooks/useLiveData.ts:ForecastPeriod` / `services/dataService.ts:ForecastRecord` — two TypeScript types represent weather forecast periods but have conflicting types for the same field: `useLiveData.ts:ForecastPeriod.windSpeed: string` (line ~120) vs `dataService.ts:ForecastRecord.windSpeed: number` (line ~52). Python `geointellisense-analytics/app/routes/nws_forecast.py` returns `"windSpeed": p.get("windSpeed", "")` — the NWS API always returns a string like `"10 mph"`. `dataService.ts:getWeatherForecast` sets `windSpeed: 0` (hardcoded number) when building `ForecastRecord`. Any code reading `ForecastRecord.windSpeed` as a string will silently get `"0"` after coercion; any code reading `ForecastPeriod.windSpeed` as a number will get `NaN` on `parseFloat("10 mph")` without explicit parsing.
+
+- OBSERVATION: `hooks/useLiveData.ts:InversionData` — TypeScript declares 9 fields: `inversionStrength`, `surfaceTempC`, `surfaceTempF`, `temp850mbC`, `tempDiffC`, `fogLikely`, `advisory`, `aqiImpact`, `time`. Python `_wrap_status` in `inversion.py` (line ~`def _wrap_status`) spreads `InversionStatus.to_dict()` which returns 13 fields; 6 are not declared in the TS type: `temp850mbF`, `surfaceDewpointC`, `windSpeedKts`, `mixingHeightM`, `source`, `soundingStation`. The `InversionWidget` cannot display these meteorologically significant fields without TS type updates.
+
+**Proposed actions:**
+- Store `sessionId` in React state in `ChatView.tsx`; send `session_id` in each `getChatResponse` call → Active Recommendation #1
+- Add `trainedAt` to `predict_aqi()` return via `meta.get("trained_at")`, or update `PredictionResult` to mark it optional → Active Recommendation #3
+- Add `category`, `color`, `source` to the `aqi-update` inline type in `useRealtimeAQI.ts` and map to `RealtimeCityData` → Active Recommendation #4
+- Change `ForecastRecord.windSpeed` to `string` in `dataService.ts` and update callsites → Active Recommendation #5
+- Widen `InversionData` to include all 13 Python-returned fields → not in top 10 (L/L, score 1.0)
+- `totalPrecipitation` fix requires a DB schema change or external weather API integration — not in top 10 (H/H, score 1.0)
+- `groundingChunks` population would require implementing citation extraction from tool call results — not in top 10 (M/H, score 0.67)
+
 ### Run #5 — 2026-05-28 — Lens: Test coverage gaps
 **Scope:** All files under `components/`, `hooks/`, `utils/`, `services/`, `contexts/`; `App.test.tsx`; `tests/*.test.tsx`; `vite.config.ts`; `package.json`; all `.rs` files in `geointellisense-ingestion/src/`; all `.py` files in `geointellisense-analytics/`; `geointellisense-ingestion/Cargo.toml`; `geointellisense-analytics/requirements.txt`.
 
@@ -68,42 +96,19 @@ Last run: #5 — Lens: Test coverage gaps
 - OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:80-84` — the broadcast ticker overwrites all `AqiReading` timestamps with `Utc::now()` at broadcast time: `live.iter().map(|r| AqiReading { timestamp: now, ..r.clone() })`. If the PurpleAir poller and broadcast ticker run at different intervals, readings stored in `sensor_readings.time` carry the broadcast timestamp rather than the actual sensor observation time. Downstream time-series aggregations in `historical_aqi.py` silently bucket readings at the wrong minute.
 
 **Proposed actions:**
-- Replace `write_readings` loop with a single UNNEST batch INSERT → Active Recommendation #1
-- Add `useRef<THREE.Vector3>` in `CameraController` to reuse across frames → Active Recommendation #5
-- Fix `Streamline` to create `THREE.Line` in `useMemo`/`useRef` and dispose on unmount → Active Recommendation #7
-- Replace `toLocaleDateString` calls with a static `MONTH_NAMES` array in `useDashboardData` → Active Recommendation #6
-- Wrap `build_live_context` data fetchers in `asyncio.gather` → Active Recommendation #4
+- Replace `write_readings` loop with a single UNNEST batch INSERT → Active Recommendation #2
+- Add `useRef<THREE.Vector3>` in `CameraController` to reuse across frames → dropped from top 10
+- Fix `Streamline` to create `THREE.Line` in `useMemo`/`useRef` and dispose on unmount → dropped from top 10
+- Replace `toLocaleDateString` calls with a static `MONTH_NAMES` array in `useDashboardData` → dropped from top 10
+- Wrap `build_live_context` data fetchers in `asyncio.gather` → Active Recommendation #7
 - Migrate `generateInterpolatedMatrix` to a Web Worker — not in top 10 (H/M, score 1.5)
 - Migrate `CityMarkers` to `InstancedMesh` — not in top 10 (H/H, score 1.0)
 - Preserve original `fetched_at` timestamp in `AqiReading`; use in `persist.rs` — not in top 10 (M/M, score 1.0)
 
-### Run #3 — 2026-05-28 — Lens: Dependency health
-**Scope:** `package.json`, `package-lock.json` (lockfileVersion 3, 368 packages), `vite.config.ts`, `index.html`, `geointellisense-analytics/requirements.txt`, `geointellisense-ingestion/Cargo.toml` + `Cargo.lock` (283 packages), all `.tsx`/`.ts` import statements for three.js; checked for `"latest"` version pins, deprecated transitive deps, CDN dependencies, bundle-split effectiveness, and SDK version lag.
-
-**Findings:**
-
-- OBSERVATION: `utils/colorScales.ts:1` performs `import * as THREE from 'three'` at module top-level. The file also exports pure AQI color functions (`getAQIColor`, `getAQICategory`, `AQI_CATEGORIES`) that have zero dependency on THREE. `components/AirQualityMapView.tsx:37` imports those pure functions from `colorScales.ts`. Because the THREE namespace import is unconditional, any consumer of `colorScales.ts` — including non-3D views — forces the entire three.js package (~600 KB min) into their module graph. `vite.config.ts:17` places `three`, `@react-three/fiber`, and `@react-three/drei` in a `three-vendor` manual chunk with the comment `// Split Three.js + React Three Fiber into its own chunk (~800KB)`, but that split is only effective if the three-vendor modules are imported exclusively from lazy-loaded routes. Because `AirQualityMapView` (a non-lazy component) triggers the THREE import via `colorScales.ts`, the three-vendor chunk is pulled into the initial bundle load.
-
-- OBSERVATION: `index.html` contains a `<script type="importmap">` block that maps `react`, `react-dom`, `recharts`, `@google/genai`, and `@googlemaps/markerclusterer` to third-party CDN URLs (`aistudiocdn.com`, `unpkg.com`). None of the `<script src>` or importmap entries carry Subresource Integrity (SRI) hashes. In a Vite build, all these packages are already resolved from `node_modules` and bundled; the importmap is a stale artifact from Google AI Studio development that introduces contradictory module paths. Additionally, `@google/genai` appears only in the importmap and nowhere in `package.json` or any TypeScript import — it is entirely unused dead weight. The `<script src="https://cdn.tailwindcss.com">` in the same file loads the full ~3 MB runtime Tailwind CDN build on every page load; Tailwind is absent from `package.json` and `vite.config.ts`, so no PostCSS purging ever runs.
-
-- OBSERVATION: `package.json:dependencies` pins `@googlemaps/markerclusterer` to the bare string `"latest"` (line 9). `latest` is a floating tag that resolves at install time — different CI environments or developer machines may install different versions without a lock-file bump, breaking reproducible builds. The same package is separately loaded via the importmap CDN entry pointing to `unpkg.com/@googlemaps/markerclusterer/dist/index.mjs`, creating a dual-resolution path where the browser might use a different version than the Vite build.
-
-- OBSERVATION: `geointellisense-ingestion/Cargo.toml` declares `rand = "0.8"`. Cargo.lock shows `rand 0.8.5`. The `rand` 0.8 branch has been in maintenance mode since the `rand` 0.9 release (early 2025); `rand 0.9` changes the default `ThreadRng` API and deprecates several distribution constructors used in 0.8. While 0.8.5 is not CVE-affected, keeping the ingestion service on an end-of-active-development crate means security patches are less likely to appear if new issues are found.
-
-- OBSERVATION: `geointellisense-analytics/requirements.txt` pins `anthropic==0.49.*`. The Anthropic Python SDK 0.49.x predates structured tool result support and Managed Agents APIs that shipped in ≥0.50. The analytics service uses the SDK across at least 10 route files (`chat.py`, `deep_analysis.py`, `grounded_search.py`, etc.) calling `client.messages.create`. Staying on 0.49.x blocks access to claude-opus-4-7 Managed Tools, token-efficient tool use, and new streaming improvements; the SDK changelog for 0.50–0.51 documents no breaking changes to `messages.create`.
-
-- OBSERVATION: `geointellisense-analytics/requirements.txt` specifies `numpy>=1.26,<2.1` — a range rather than a minor-pinned spec — while all other scientific deps (`scipy`, `scikit-learn`, `joblib`) also use range pins. This is intentional and correct for scientific stack. However, there is no `requirements.lock` / `pip-compile` artefact in the repo; the Docker image will install the latest-matching versions at build time with no reproducibility guarantee across builds.
-
-**Proposed actions:**
-- Split `utils/colorScales.ts` into `utils/aqiColors.ts` (pure JS, no THREE) and `utils/colorScalesThree.ts` (THREE textures); update `AirQualityMapView.tsx` and other non-3D importers to use the pure file → Active Recommendation (fell off top 10 this run)
-- Remove the `<script type="importmap">` block and the Tailwind CDN `<script>` from `index.html`; install `tailwindcss` as a dev dep and configure the PostCSS plugin in `vite.config.ts` → Active Recommendation (fell off top 10 this run)
-- Change `"@googlemaps/markerclusterer": "latest"` to `"^2.6.2"` in `package.json` → not in top 10 (L/L, displaced)
-- Upgrade `rand` in `Cargo.toml` from `"0.8"` to `"0.9"` and run `cargo update` → not in top 10 (L/L, displaced)
-- Bump `anthropic` in `requirements.txt` to `>=0.50,<0.52` → Active Recommendation #10
-
 ## 📚 Archive (one line per past run)
-- Run #1 (2026-05-28) — Lens: Type safety — 8 findings — 4 promoted to Active
+- Run #3 (2026-05-28) — Lens: Dependency health — 5 findings — 3 promoted to Active
 - Run #2 (2026-05-28) — Lens: Module boundaries — 6 findings — 4 promoted to Active
+- Run #1 (2026-05-28) — Lens: Type safety — 8 findings — 4 promoted to Active
 
 ## 🔁 Lens rotation log
 - Run #1: lens 1 (Type safety) — findings added
@@ -111,3 +116,4 @@ Last run: #5 — Lens: Test coverage gaps
 - Run #3: lens 3 (Dependency health) — findings added
 - Run #4: lens 4 (Perf hot paths) — findings added
 - Run #5: lens 5 (Test coverage gaps) — findings added
+- Run #6: lens 6 (TS ↔ Python contract) — findings added
