@@ -1,22 +1,53 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T10:07:14Z
-Last run: #6 — Lens: TS ↔ Python contract
+Last updated: 2026-05-28T11:15:00Z
+Last run: #7 — Lens: UX / UI flaws
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
 |---|-------|------|----------------|----------------|--------------------|--------|
-| 1 | Propagate `sessionId` through chat calls in `aiService.ts` | TS↔Py contract | H | L | 6 | Open |
-| 2 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
-| 3 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
-| 4 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
-| 5 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
-| 6 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
-| 7 | Use `asyncio.gather` in `build_live_context` | Perf | M | L | 4 | Open |
-| 8 | Add Vitest coverage thresholds to `vite.config.ts` | Test coverage | M | L | 5 | Open |
-| 9 | Add unit tests for `interpolation.ts`, `weatherUtils.ts`, `colorScales.ts` pure functions | Test coverage | M | L | 5 | Open |
-| 10 | Upgrade Anthropic Python SDK from `0.49.*` to `>=0.50` | Dep health | M | L | 3 | Open |
+| 1 | Sanitize AI result before `dangerouslySetInnerHTML` in `AnalysisView.tsx` | UX/Security | H | L | 7 | Open |
+| 2 | Propagate `sessionId` through chat calls in `aiService.ts` | TS↔Py contract | H | L | 6 | Open |
+| 3 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
+| 4 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
+| 5 | Expose `category`, `color`, `source` from SSE `aqi-update` in `RealtimeCityData` | TS↔Py contract | M | L | 6 | Open |
+| 6 | Align `windSpeed` type: `ForecastPeriod.windSpeed: string` vs `ForecastRecord.windSpeed: number` | TS↔Py contract | M | L | 6 | Open |
+| 7 | Annotate AI service `response.json()` shapes | Type safety | M | L | 1 | Open |
+| 8 | Use `asyncio.gather` in `build_live_context` | Perf | M | L | 4 | Open |
+| 9 | Add Vitest coverage thresholds to `vite.config.ts` | Test coverage | M | L | 5 | Open |
+| 10 | Add unit tests for `interpolation.ts`, `weatherUtils.ts`, `colorScales.ts` pure functions | Test coverage | M | L | 5 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #7 — 2026-05-28 — Lens: UX / UI flaws
+**Scope:** `index.html`; `components/AnalysisView.tsx`; `components/MapView.tsx`; `components/ChatView.tsx`; `components/LoadingStates.tsx`; `components/Toast.tsx`; `components/ErrorBoundary.tsx`; `components/dashboard/widgets/AqiForecastWidget.tsx`; `components/dashboard/widgets/InversionWidget.tsx`; `components/dashboard/widgets/AqiGaugeWidget.tsx`; `components/dashboard/WidgetShell.tsx`; `components/3d/UIPanels.tsx`; `styles/theme-light.css`; `contexts/UserPreferencesContext.tsx`.
+
+**Findings:**
+
+- OBSERVATION: `components/AnalysisView.tsx:450` — `dangerouslySetInnerHTML={{ __html: result.replace(/\n/g, '<br />') }}` renders the raw AI-returned analysis string as HTML with no sanitization beyond newline→`<br />` conversion. `result` comes from the Python analytics server which forwards Claude/Gemini output. If an adversarial prompt causes the model to emit HTML tags (e.g. `<img onerror="…">`, `<script>…</script>`), those tags execute in the browser with full DOM access. The only escape path is `DOMPurify.sanitize(result)` before injection, or switching to `whitespace-pre-wrap` text rendering (which also avoids the need for `<br />` replacement).
+
+- OBSERVATION: `components/MapView.tsx:253-264, 279-291, 305-317, 327-342, 354-367` — All five Google Maps `InfoWindow` popups are built by interpolating **server-returned external data** directly into raw HTML template literals. Specifically: `r.stationName` (PurpleAir station names, line ~255), `e.place` (USGS earthquake place-name string, line ~308), `w.name` / `w.operator` (CalGEM well names/operators, lines ~332-337), `w.siteName` (water quality site name, line ~358), and the `paramHtml` variable assembled from `Object.entries(w.parameters || {}).map(([name, p]) => …)` (line ~350-352, where `name` is a contaminant name from the backend). None of these values are HTML-escaped before insertion. A maliciously named station (`"><img src=x onerror=alert(1)>`) would execute in the info window's sandboxed but same-origin context. All info windows also hardcode `background:#0f172a;color:#cbd5e1` inline styles, so they remain permanently dark-themed in light mode, ignoring the `.light` class toggle controlled by `UserPreferencesContext`.
+
+- OBSERVATION: `components/LoadingStates.tsx:8, 26, 47, 71, 160, 180, 216` — Every skeleton loader and the `StatusDot` pulse use Tailwind's `animate-pulse` class with no `motion-safe:` prefix and no `@media (prefers-reduced-motion: reduce)` guard anywhere in the codebase. Tailwind provides first-class `motion-safe:animate-pulse` and `motion-reduce:animate-none` utilities for exactly this case. Users who enable `prefers-reduced-motion` in their OS (commonly done by users with vestibular disorders or epilepsy triggers) receive continuous animation. No component or global CSS anywhere in the project addresses this.
+
+- OBSERVATION: `components/ChatView.tsx:14` — `scrollToBottom` calls `messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })` unconditionally. Every incoming AI message triggers a smooth animated scroll in the chat pane. There is no check for `window.matchMedia('(prefers-reduced-motion: reduce)').matches`; affected users experience motion on every response. Fix: detect reduced-motion preference and use `behavior: "instant"` when active.
+
+- OBSERVATION: `components/dashboard/widgets/InversionWidget.tsx:26, 33, 37` — Three temperature values are displayed on the same card using two different unit systems: line 33 shows `surfaceTempF` in °F (`data.surfaceTempF`), line 37 shows `temp850mbC` in °C (`data.temp850mbC`), and line 26 shows the temperature difference `tempDiffC` in °C. A user reading "Surface: 68°F / 850mb: 15°C / Diff: +5°C" cannot mentally verify the inversion without converting units. The Python backend (`inversion.py`) already returns both `surfaceTempC` and `surfaceTempF`; the widget should pick a consistent unit per the user's preference in `UserPreferencesContext.temperatureUnit`.
+
+- OBSERVATION: `components/dashboard/widgets/AqiForecastWidget.tsx:62` — "Top Drivers" feature names are rendered as `<span className="text-slate-400 w-28 truncate">{f.feature.replace(/_/g, ' ')}</span>` with a fixed `w-28` (112 px) width and the `truncate` class, but **no `title` attribute**. Names like `"relative_humidity_percent"` or `"wind_speed_10m_ms"` are silently clipped. The user has no way to discover the full name on hover or via keyboard focus. Adding `title={f.feature.replace(/_/g, ' ')}` to the span is a one-line fix.
+
+- OBSERVATION: `index.html:15` — Tailwind CSS is loaded from `https://cdn.tailwindcss.com` (the Play CDN). The Tailwind docs explicitly state: *"The Play CDN is designed for development purposes only, and is not the best choice for production."* The CDN build (~313 KB unminified) attaches a `MutationObserver` to the document to detect new class names and generate CSS at runtime. In a data-heavy app that constantly adds new React elements to the DOM (3D canvas updates, real-time SSE markers, chart re-renders), this observer fires continuously and adds measurable CPU overhead on lower-end devices. Production builds should use `@tailwindcss/vite` with a proper purge/scan config to emit a static, tree-shaken CSS bundle of ~8–20 KB.
+
+- OBSERVATION: `components/3d/UIPanels.tsx:352-355` — The camera-controls help text uses emoji characters (🖱️ ⚲ ⇧) as the sole visual representation of mouse/keyboard actions. These glyphs are not supported in all emoji fonts and render as blank boxes on some Android WebViews and older Windows Chrome builds. No fallback text (e.g. "Left-click to rotate") is provided, and the emoji lack `aria-label` alternatives. Screen reader users cannot discover the available controls at all from this section.
+
+**Proposed actions:**
+- Replace `dangerouslySetInnerHTML` with `DOMPurify.sanitize()` or plain-text rendering in `AnalysisView.tsx:450` → Active Recommendation #1
+- HTML-escape all externally-sourced strings before interpolation in `MapView.tsx` info windows (add a 5-line `escapeHtml(s)` helper); apply theme-aware CSS class to info window container — not in top 10 (M/M, score 1.0, info window DOM is Google's)
+- Replace `animate-pulse` with `motion-safe:animate-pulse motion-reduce:animate-none` across all 7 occurrences in `LoadingStates.tsx` — not in top 10 (M/L=2.0 ties existing items)
+- Use reduced-motion-aware scroll in `ChatView.tsx:14` — not in top 10 (L/L, score 1.0)
+- Unify temperature units in `InversionWidget.tsx` by reading `UserPreferencesContext.temperatureUnit` — not in top 10 (M/L=2.0 ties existing items)
+- Add `title` attribute to truncated feature names in `AqiForecastWidget.tsx:62` — not in top 10 (L/L, score 1.0)
+- Replace Tailwind CDN with `@tailwindcss/vite` build pipeline in `index.html` and `vite.config.ts` — not in top 10 (M/M, score 1.0)
+- Replace emoji control hints with labelled SVG icons in `UIPanels.tsx:352-355` — not in top 10 (L/L, score 1.0)
+
 ### Run #6 — 2026-05-28 — Lens: TS ↔ Python contract
 **Scope:** `types.ts`, `services/dataService.ts`, `services/aiService.ts`, `hooks/useRealtimeAQI.ts`, `hooks/useLiveData.ts`; Python routes `chat.py`, `grounded_search.py`, `grounded_maps.py`, `historical_aqi.py`, `historical_weather.py`, `predictive_analysis.py`, `weather_forecast.py`, `nws_forecast.py`, `predict.py`, `inversion.py`; Rust structs `aqi.rs` (`AqiReading`), `routes/aqi.rs` (`SnapshotResponse`); Python `clients/nws_sounding.py` (`InversionStatus.to_dict`, `_wrap_status`); Python `ml/aqi_model.py` (`predict_aqi`).
 
@@ -37,10 +68,10 @@ Last run: #6 — Lens: TS ↔ Python contract
 - OBSERVATION: `hooks/useLiveData.ts:InversionData` — TypeScript declares 9 fields: `inversionStrength`, `surfaceTempC`, `surfaceTempF`, `temp850mbC`, `tempDiffC`, `fogLikely`, `advisory`, `aqiImpact`, `time`. Python `_wrap_status` in `inversion.py` (line ~`def _wrap_status`) spreads `InversionStatus.to_dict()` which returns 13 fields; 6 are not declared in the TS type: `temp850mbF`, `surfaceDewpointC`, `windSpeedKts`, `mixingHeightM`, `source`, `soundingStation`. The `InversionWidget` cannot display these meteorologically significant fields without TS type updates.
 
 **Proposed actions:**
-- Store `sessionId` in React state in `ChatView.tsx`; send `session_id` in each `getChatResponse` call → Active Recommendation #1
-- Add `trainedAt` to `predict_aqi()` return via `meta.get("trained_at")`, or update `PredictionResult` to mark it optional → Active Recommendation #3
-- Add `category`, `color`, `source` to the `aqi-update` inline type in `useRealtimeAQI.ts` and map to `RealtimeCityData` → Active Recommendation #4
-- Change `ForecastRecord.windSpeed` to `string` in `dataService.ts` and update callsites → Active Recommendation #5
+- Store `sessionId` in React state in `ChatView.tsx`; send `session_id` in each `getChatResponse` call → Active Recommendation #2
+- Add `trainedAt` to `predict_aqi()` return via `meta.get("trained_at")`, or update `PredictionResult` to mark it optional → Active Recommendation #4
+- Add `category`, `color`, `source` to the `aqi-update` inline type in `useRealtimeAQI.ts` and map to `RealtimeCityData` → Active Recommendation #5
+- Change `ForecastRecord.windSpeed` to `string` in `dataService.ts` and update callsites → Active Recommendation #6
 - Widen `InversionData` to include all 13 Python-returned fields → not in top 10 (L/L, score 1.0)
 - `totalPrecipitation` fix requires a DB schema change or external weather API integration — not in top 10 (H/H, score 1.0)
 - `groundingChunks` population would require implementing citation extraction from tool call results — not in top 10 (M/H, score 0.67)
@@ -67,45 +98,15 @@ Last run: #6 — Lens: TS ↔ Python contract
 - OBSERVATION: `App.test.tsx` — the only top-level test file contains **three smoke assertions** (container `.flex.h-screen` exists, `<main>` exists, `<main>` has the expected CSS classes). There are no tests for view routing, sidebar navigation, error boundary activation, or any feature flag. The file satisfies "we have App tests" but provides effectively no regression safety.
 
 **Proposed actions:**
-- Add `coverage.thresholds` block to `vite.config.ts` `test` section (e.g. `lines: 60, branches: 50`) → Active Recommendation #8
-- Add pure-function unit tests for `utils/interpolation.ts`, `utils/weatherUtils.ts`, `utils/colorScales.ts` → Active Recommendation #9
+- Add `coverage.thresholds` block to `vite.config.ts` `test` section (e.g. `lines: 60, branches: 50`) → Active Recommendation #9
+- Add pure-function unit tests for `utils/interpolation.ts`, `utils/weatherUtils.ts`, `utils/colorScales.ts` → Active Recommendation #10
 - Add `pytest`, `httpx[test]`, and `pytest-asyncio` to `requirements.txt`; create `geointellisense-analytics/tests/` with smoke tests for `/health`, `/api/chat`, and middleware — not in top 10 (H/H, score 1.0)
 - Add `#[cfg(test)]` modules to `geointellisense-ingestion/src/aqi.rs` and `persist.rs`; add `tokio-test` to `[dev-dependencies]` — not in top 10 (M/M, score 1.0)
 - Add `renderHook` tests for `useRealtimeAQI` reconnection and mock fallback — not in top 10 (M/M, score 1.0)
 - Add `renderHook` tests for `useLiveData` error-kind classification — not in top 10 (M/M, score 1.0)
 
-### Run #4 — 2026-05-28 — Lens: Perf hot paths
-**Scope:** `geointellisense-ingestion/src/db/persist.rs`, `src/broadcast.rs`, `src/purpleair.rs`; `components/3d/AQI3DScene.tsx`, `CityMarkers.tsx`, `TerrainMesh.tsx`, `WindField.tsx`; `utils/interpolation.ts`; `hooks/useDashboardData.ts`, `hooks/useRealtimeAQI.ts`; `geointellisense-analytics/app/context.py`.
-
-**Findings:**
-
-- OBSERVATION: `geointellisense-ingestion/src/db/persist.rs:5-36` — `write_readings` executes one `sqlx::query(...).execute(pool).await` per reading inside a sequential `for` loop. With the default seeded station count (~20), every broadcast tick creates 20 individual TCP round-trips to PostgreSQL. The standard PostgreSQL pattern for bulk inserts is a single `INSERT … SELECT UNNEST($1::uuid[], $2::real[], …)` which reduces N round-trips to 1. Because `sensor_readings` is a TimescaleDB hypertable (seen in `db/migrations/002_sensor_readings.sql`), row-level locking overhead compounds the cost.
-
-- OBSERVATION: `components/3d/AQI3DScene.tsx:70` — `CameraController.useFrame` allocates `const target = new THREE.Vector3()` on every animation frame when the `onCameraMove` prop is set. At 60 fps this creates ~3,600 short-lived heap objects per minute. The fix is a `useRef<THREE.Vector3>` initialized once and reused via `.set()` calls inside the frame callback — a standard React Three Fiber GC-pressure pattern.
-
-- OBSERVATION: `components/3d/WindField.tsx` — (a) `WindParticleSystem`'s initialization `useMemo` performs a brute-force O(P×W) nearest-wind-point search: for each of `count` (default 500) particles it scans all `windData` entries with `Math.sqrt` + comparison (lines ~147-165). Acceptable with 6 cities today; degrades linearly if station count grows. (b) Every `Streamline` component renders `<primitive object={new THREE.Line(geometry, material)} />` where a brand-new `THREE.Line` is constructed in JSX on each React render. React reconciliation creates a new THREE object every time the parent `streamlines` useMemo recomputes, and the old `THREE.Line`'s GPU buffers are never disposed, leaking WebGL geometry memory. The fix is to create the Line inside a `useMemo` or `useRef` and call `geometry.dispose() / material.dispose()` in a `useEffect` cleanup.
-
-- OBSERVATION: `utils/interpolation.ts:generateInterpolatedMatrix` — called from `TerrainMesh.tsx`'s `useMemo` with default `textureResolution=128`. For each of 128×128 = 16,384 grid cells, `interpolateIDW` is invoked, which calls `.map()`, `.filter()`, `.sort()` on the `dataPoints` array. This O(W·H·N·log N) computation runs synchronously on the JS main thread and blocks React rendering on every AQI data update. Moving this to a `Worker` (via Comlink) or caching the result keyed by `aqiData` identity would eliminate render jank.
-
-- OBSERVATION: `components/3d/CityMarkers.tsx` — each city is rendered as an individual `<group>` with 4 separate geometries (circleGeometry, cylinderGeometry, 2× sphereGeometry), producing 4×N WebGL draw calls per frame. Each `CityMarker` registers its own `useFrame` for the pulsing glow animation, so N cities = N `useFrame` callbacks every frame. Migrating to `InstancedMesh` with per-instance color attributes would collapse N×4 draw calls to 2 and a single parent `useFrame` could drive all animations.
-
-- OBSERVATION: `hooks/useDashboardData.ts` — `mergedHumidityData`, `mergedWindData`, `mergedUVData`, and `mergedAgriculturalData` each call `dayDate.toLocaleDateString('en-US', { month: 'short' })` inside `dailyForecast.forEach` loops (~lines 155-355). `toLocaleDateString` invokes the V8 ICU locale subsystem on every call. With a 365-day forecast, 4 memos, and 1+ selected locations, a full recompute performs ~1,460 locale API calls per `startDate`/`endDate` change. A 12-element `['Jan','Feb',…]` lookup array is orders of magnitude faster.
-
-- OBSERVATION: `geointellisense-analytics/app/context.py:67-75` — `build_live_context` awaits all 8 data-source fetchers sequentially (`context["aqi"] = await _get_aqi_context(pool)` … `context["prediction"] = await _get_prediction_context(pool)`). Total latency equals the sum of all 8 query times. Wrapping in `asyncio.gather` would run them concurrently against the asyncpg pool, reducing latency to roughly `max(query_times)`. `build_live_context` is called on every AI endpoint that uses `get_system_with_live_context`, including the high-frequency `/api/low-latency` route.
-
-- OBSERVATION: `geointellisense-ingestion/src/broadcast.rs:80-84` — the broadcast ticker overwrites all `AqiReading` timestamps with `Utc::now()` at broadcast time: `live.iter().map(|r| AqiReading { timestamp: now, ..r.clone() })`. If the PurpleAir poller and broadcast ticker run at different intervals, readings stored in `sensor_readings.time` carry the broadcast timestamp rather than the actual sensor observation time. Downstream time-series aggregations in `historical_aqi.py` silently bucket readings at the wrong minute.
-
-**Proposed actions:**
-- Replace `write_readings` loop with a single UNNEST batch INSERT → Active Recommendation #2
-- Add `useRef<THREE.Vector3>` in `CameraController` to reuse across frames → dropped from top 10
-- Fix `Streamline` to create `THREE.Line` in `useMemo`/`useRef` and dispose on unmount → dropped from top 10
-- Replace `toLocaleDateString` calls with a static `MONTH_NAMES` array in `useDashboardData` → dropped from top 10
-- Wrap `build_live_context` data fetchers in `asyncio.gather` → Active Recommendation #7
-- Migrate `generateInterpolatedMatrix` to a Web Worker — not in top 10 (H/M, score 1.5)
-- Migrate `CityMarkers` to `InstancedMesh` — not in top 10 (H/H, score 1.0)
-- Preserve original `fetched_at` timestamp in `AqiReading`; use in `persist.rs` — not in top 10 (M/M, score 1.0)
-
 ## 📚 Archive (one line per past run)
+- Run #4 (2026-05-28) — Lens: Perf hot paths — 7 findings — 3 promoted to Active
 - Run #3 (2026-05-28) — Lens: Dependency health — 5 findings — 3 promoted to Active
 - Run #2 (2026-05-28) — Lens: Module boundaries — 6 findings — 4 promoted to Active
 - Run #1 (2026-05-28) — Lens: Type safety — 8 findings — 4 promoted to Active
@@ -117,3 +118,4 @@ Last run: #6 — Lens: TS ↔ Python contract
 - Run #4: lens 4 (Perf hot paths) — findings added
 - Run #5: lens 5 (Test coverage gaps) — findings added
 - Run #6: lens 6 (TS ↔ Python contract) — findings added
+- Run #7: lens 7 (UX / UI flaws) — findings added
