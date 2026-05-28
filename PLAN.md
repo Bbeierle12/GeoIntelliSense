@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-28T16:15:00Z
-Last run: #12 — Lens: Deployment / Docker
+Last updated: 2026-05-28T17:15:00Z
+Last run: #13 — Lens: LLM integration quality
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -14,9 +14,40 @@ Last run: #12 — Lens: Deployment / Docker
 | 7 | `POST /api/predict/train` is unauthenticated — any client can trigger expensive model retraining | Security | H | L | 9 | Open |
 | 8 | No logging configuration in analytics `main.py` — all `logger.info/debug` calls silently dropped | Observability | H | L | 10 | Open |
 | 9 | Health checks return static `"ok"` without probing DB or Redis — failing containers pass healthcheck | Observability | H | L | 10 | Open |
-| 10 | Add `trainedAt` to `predict_aqi()` return dict (or remove from `PredictionResult` TS type) | TS↔Py contract | M | L | 6 | Open |
+| 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #13 — 2026-05-28 — Lens: LLM integration quality
+**Scope:** `geointellisense-analytics/app/claude.py`, `app/routes/chat.py`, `app/routes/deep_analysis.py`, `app/routes/grounded_search.py`, `app/routes/grounded_maps.py`, `app/routes/low_latency.py`, `app/routes/predictive_analysis.py`, `app/routes/weather_forecast.py`, `services/aiService.ts`, `app/middleware.py`, `requirements.txt`
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-analytics/app/routes/predictive_analysis.py:37-38` and `weather_forecast.py:28-29` — `async def predictive_analysis(req: PredictiveAnalysisRequest)` and `async def weather_forecast(req: WeatherForecastRequest)` accept no `request: Request` parameter and call neither `check_ai_auth()` nor `check_rate_limit()`. All five other AI endpoints (`/api/chat`, `/api/deep-analysis`, `/api/grounded-search`, `/api/grounded-maps`, `/api/low-latency`) enforce the `x-api-key` check and per-IP sliding-window rate limiting defined in `middleware.py`. Any public caller can POST to these two endpoints indefinitely and trigger `claude-sonnet-4-20250514` calls with up to 4 096 output tokens each, with no authentication gate and no cost guardrail.
+
+- OBSERVATION: `geointellisense-analytics/app/claude.py:68` — `get_client()` returns `anthropic.Anthropic(...)` (the synchronous SDK client). Every AI route calls `client.messages.create(...)` inside an `async def` FastAPI handler. The synchronous `create()` call blocks the entire asyncio event loop for the duration of the Anthropic HTTP round-trip (typically 1–30 seconds). Uvicorn processes no other requests on that worker thread until the call returns. The `anthropic` package ships `anthropic.AsyncAnthropic` for exactly this use case; replacing `get_client()` to return `AsyncAnthropic` and awaiting `await client.messages.create(...)` would allow concurrent request handling on the same worker.
+
+- OBSERVATION: `geointellisense-analytics/app/claude.py:71-95` (all six AI routes) — No route uses Anthropic's prompt-caching feature. `get_system_with_live_context()` returns a system prompt that concatenates the base system string with a multi-section live context blob (AQI station readings, earthquake list, active fires, water levels, NWS forecast). This system prompt — potentially 2 000–8 000 tokens depending on data volume — is re-transmitted as a fresh input on every `client.messages.create()` call. Anthropic's `cache_control: {"type": "ephemeral"}` breakpoint on the `system` field caches the prompt for up to 5 minutes, charging 25% of normal input-token price for cache hits. Since `_cached_context` is already refreshed at most once per 60 seconds, back-to-back requests within the same minute would be near-100% cache hits, cutting per-request input-token cost by roughly 80–90% on the cached content.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/weather_forecast.py:55` — `resp = get_client().messages.create(model="claude-sonnet-4-20250514", ..., system=FORECAST_SYSTEM, ...)` passes the static `FORECAST_SYSTEM` string directly, never calling `await get_system_with_live_context(FORECAST_SYSTEM)`. Every other AI route injects current sensor readings, active fires, earthquake events, and NWS forecast into the system prompt via `get_system_with_live_context`. The weather forecast route is the only AI endpoint where the model has no knowledge of present conditions (e.g., an active heat dome or atmospheric river that would directly affect its forecast quality).
+
+- OBSERVATION: `geointellisense-analytics/app/routes/deep_analysis.py:47-67` and `chat.py:49-65` — Both tool-use loops reconstruct the messages list from scratch on each iteration rather than carrying it forward. In `deep_analysis.py`, round 2 sends `[user_msg, round1_assistant_content, round1_tool_results]`; if the model triggers tools again in round 2, round 3 sends the same three-element list — the model's round-2 assistant response and round-2 tool results are silently dropped. With `budget_tokens=32768` extended thinking enabled, Opus's intermediate reasoning from earlier tool rounds is also discarded. The correct pattern is to grow a single `messages` list by appending `{"role": "assistant", "content": resp.content}` and `{"role": "user", "content": tool_results}` on each round before calling `create()` again.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/grounded_search.py:12-16` — `SEARCH_SUFFIX` instructs the model to "Format citations as inline references with titles and URLs where possible." Claude is a language model with no web-retrieval capability; the `TOOLS` list contains only internal data-fetch tools (`get_air_quality`, `get_earthquakes`, `get_active_fires`, `get_water_levels`, `get_weather_forecast`). Any external source URLs that Claude includes in its response are hallucinated. The endpoint is branded as a "grounded search" but performs no actual grounding to external URLs; `SEARCH_SUFFIX` actively encourages fabrication of citations that users may trust as authoritative.
+
+- OBSERVATION: `geointellisense-analytics/app/claude.py:32-43` — `_sessions: dict[str, list[dict]] = {}` is a module-level in-process variable. Under Uvicorn with `--workers N` (or any multi-process deployment), each worker process owns an independent copy of `_sessions`. A user's first `/api/chat` request handled by worker A creates a session in A's dict; if subsequent requests land on worker B (round-robin load balancing), `get_session_history(session_id)` returns `[]` — the model starts from scratch every turn. The project already includes Redis (`redis_url` in `config.py`, `get_redis()` in `cache.py`); serializing session history as a JSON list keyed by `session_id` with a TTL of e.g. 2 hours would make sessions worker-agnostic.
+
+- OBSERVATION: `geointellisense-analytics/app/routes/chat.py:37`, `deep_analysis.py:30`, `grounded_search.py:33`, `grounded_maps.py:37`, `low_latency.py:30` — No AI route implements retry logic for transient Anthropic API errors. When `client.messages.create()` raises `anthropic.RateLimitError` (HTTP 429) or `anthropic.InternalServerError` (HTTP 529), the outer `except Exception as e:` block immediately returns HTTP 500 to the client with the raw exception string. Anthropic's own documentation recommends 2–4 retries with exponential backoff for these status codes; without it, a momentary rate-limit burst or upstream overload permanently fails user requests rather than waiting a few seconds and retrying.
+
+**Proposed actions:**
+- Add `request: Request` parameter and call `check_ai_auth(request)` + `await check_rate_limit(request, "ai_deep")` at the top of `predictive_analysis.py` and `weather_forecast.py` — references Active Recommendations row #10
+- Replace `get_client()` → `anthropic.Anthropic(...)` with `anthropic.AsyncAnthropic(...)` and `await client.messages.create(...)` across all six routes — not in top 10 (H/M, score 1.5)
+- Add `cache_control: {"type": "ephemeral"}` breakpoint to the `system` field in all `client.messages.create()` calls that use `get_system_with_live_context()` — not in top 10 (H/M, score 1.5)
+- Replace `system=FORECAST_SYSTEM` in `weather_forecast.py:55` with `system=await get_system_with_live_context(FORECAST_SYSTEM)` — not in top 10 (M/L, score 2.0; newer first-seen than items 1-9)
+- Accumulate messages list across tool-use rounds in `deep_analysis.py` and `chat.py` rather than rebuilding from session history each round — not in top 10 (M/L, score 2.0; newer first-seen)
+- Remove or rewrite `SEARCH_SUFFIX` in `grounded_search.py:12-16` to omit URL citation instructions since Claude has no web access — not in top 10 (M/L, score 2.0; newer first-seen)
+- Move session history to Redis: store as `geointelli:session:<id>` JSON list with 2-hour TTL; update `get_session_history`, `append_to_session`, `reset_session` in `claude.py` — not in top 10 (H/M, score 1.5)
+- Add exponential-backoff retry (max 3 attempts, 1s/2s/4s) for `anthropic.RateLimitError` and `anthropic.InternalServerError` in all five route files — not in top 10 (H/L, score 3.0; newer first-seen than items 1-9, 11th H/L item overall)
+
 ### Run #12 — 2026-05-28 — Lens: Deployment / Docker
 **Scope:** `geointellisense-ingestion/Dockerfile`, `geointellisense-analytics/Dockerfile`, `geointellisense-ingestion/.dockerignore`, `geointellisense-analytics/.dockerignore`, `docker-compose.yml`, `Caddyfile`; `geointellisense-analytics/requirements.txt`, `geointellisense-ingestion/Cargo.toml`.
 
@@ -105,3 +136,4 @@ Last run: #12 — Lens: Deployment / Docker
 - Run #10: lens 10 (Observability) — findings added
 - Run #11: lens 11 (Docs) — findings added
 - Run #12: lens 12 (Deployment / Docker) — findings added
+- Run #13: lens 13 (LLM integration quality) — findings added
