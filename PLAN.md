@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-05-29T19:10:00Z
-Last run: #39 — Lens: Security
+Last updated: 2026-05-29T20:30:00Z
+Last run: #40 — Lens: Observability
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -17,6 +17,28 @@ Last run: #39 — Lens: Security
 | 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #40 — 2026-05-29 — Lens: Observability
+**Scope:** Third observability pass. Python analytics: all 32 `app/routes/*.py` files checked for error-handling patterns; `app/main.py`; `app/middleware.py`. Rust ingestion: `src/main.rs`. Frontend: `index.tsx`, `utils/errorHandling.ts`, `components/ErrorBoundary.tsx`. Cross-referenced Active Rec rows #8 and #9 and archived findings from runs #10 and #25 to exclude previously-reported items.
+
+**Findings:**
+
+- OBSERVATION: 23 of the ~32 Python route files use `traceback.print_exc()` in their `except` blocks rather than `logger.exception()`. Representative examples: `chat.py:88`, `deep_analysis.py:87`, `grounded_search.py:81`, `predictive_analysis.py:99`, `low_latency.py:39`, `traffic.py:63`, `predict.py:93`, `water.py:132`, `fires.py:135`, `airnow.py:51`. `traceback.print_exc()` writes directly to `sys.stderr` and completely bypasses the Python `logging` framework — it is unaffected by log level, handler configuration, or log-aggregation middleware. This means that even after applying the fix from Active Rec row #8 (adding a logging configuration to `main.py`), all exception stack traces from every API endpoint will still escape to raw stderr rather than flowing through any structured log handler. The correct replacement is `logger.exception("descriptive message")`, which emits at ERROR level with the full traceback attached, routes through the configured logging system, and is searchable in any downstream aggregator.
+
+- OBSERVATION: `geointellisense-analytics/app/middleware.py:64-75` — when `check_rate_limit()` enforces a 429 response it produces no log entry. The function's only `logger.warning()` call (line 77) fires when the Redis check itself raises an exception (i.e., Redis is unavailable), not when a rate limit is legitimately hit. As a result there is zero observability into which clients are being throttled, on which endpoint tier, at what request frequency, or whether the configured limits are appropriate. Distinguishing an abusive scraper from a high-volume legitimate partner requires manual Redis key inspection. Fix: add `logger.warning("Rate limit hit: client=%s tier=%s count=%d limit=%d", client, tier, count, max_requests)` at line 64 before the `return JSONResponse(...)`.
+
+- OBSERVATION: `index.tsx:1-15` — the React entry point has no `window.onerror` or `window.addEventListener('unhandledrejection', ...)` handler. React's `ErrorBoundary` catches render-cycle errors only; it does NOT catch async errors from `fetch()` calls, rejected promises from `services/dataService.ts`, `services/aiService.ts`, and `services/AirQualityService.ts`. These failures are silently discarded by the browser. `utils/errorHandling.ts:321-322` contains the comment "In production, you would send this to an error tracking service (e.g., Sentry, LogRocket)" — but `logError()` is never invoked for unhandled promise rejections, making the stub dead code for this entire class of errors. Fix: add `window.addEventListener('unhandledrejection', e => logError(e.reason, 'unhandledrejection'))` in `index.tsx` before the `root.render()` call; this alone routes all async errors through the existing `logError()` path and makes them visible in the browser console with timestamps and context.
+
+- OBSERVATION: `geointellisense-analytics/app/main.py` — the FastAPI application has no `@app.exception_handler(Exception)` registered. Unhandled exceptions in route coroutines cause FastAPI to return HTTP 500, but uvicorn logs only a single-line entry to its own internal `uvicorn.error` logger (e.g., `ERROR: Exception in ASGI application`) with no indication of which route, which session ID, which model call, or what request parameters were in flight. There is also no `BaseHTTPMiddleware` that measures request duration. An operator looking at application logs during an incident cannot determine which of the ~32 route handlers is failing, at what frequency, or how long requests are taking. Fix: register an `@app.exception_handler(Exception)` that calls `logger.exception("Unhandled exception in %s", request.url.path)` before re-raising; add a `BaseHTTPMiddleware` subclass that records `time.monotonic()` on entry and logs `method, path, status_code, duration_ms` on exit.
+
+- OBSERVATION: `geointellisense-ingestion/src/main.rs:87` — `TraceLayer::new_for_http()` is added to the Axum router, which emits HTTP request spans via `tower_http`. However, no request-ID or correlation-ID header is injected into responses (no `SetRequestIdLayer`, no UUID generation). The Python analytics service at `geointellisense-analytics/app/main.py` also generates no correlation ID. A single user interaction that touches both services — e.g., the chat assistant calling `build_live_context()` (Python) which depends on the Rust SSE feed — produces log entries in two separate Docker log streams with no shared field linking them. Diagnosing a latency spike or error requires manually cross-referencing timestamps across both services. Fix: add `tower_http::request_id::SetRequestIdLayer` in the Rust router; have the Python analytics service forward or generate `X-Request-ID` headers, logging the value in every route handler.
+
+**Proposed actions:**
+- Replace all `traceback.print_exc()` calls in 23 route files with `logger.exception("…")` — M/L, score 2.0; does not enter top 10
+- Add `logger.warning(…)` on rate-limit hit in `middleware.py:64` — M/L, score 2.0; does not enter top 10
+- Add `window.addEventListener('unhandledrejection', …)` in `index.tsx:14` — M/L, score 2.0; does not enter top 10
+- Register `@app.exception_handler(Exception)` and a request-duration middleware in `main.py` — M/L, score 2.0; does not enter top 10
+- Add `SetRequestIdLayer` in Rust router and `X-Request-ID` propagation in Python service — M/L, score 2.0; does not enter top 10
+
 ### Run #39 — 2026-05-29 — Lens: Security
 **Scope:** Third security pass. Python analytics service: `app/main.py`, `app/middleware.py`, `app/config.py`, `app/routes/admin.py`, `app/routes/ai_context.py`, `app/routes/chat.py`, `app/routes/explore.py`, `app/routes/demographics.py`, `app/routes/maps_config.py`. Rust ingestion service: `src/main.rs`, `src/routes/admin.rs`, `src/routes/sse.rs`. Cross-referenced Active Recs rows #6, #7, #10 and archived findings from runs #9 and #24 to exclude previously-reported items.
 
@@ -61,29 +83,8 @@ Last run: #39 — Lens: Security
 - Replace `ts.replace(".000", "")` with `re.sub(r'\.\d+', '', ts)` in `water.py:287` — M/L, score 2.0; does not enter top 10
 - Add `latitude, longitude` to the DB queries in `_format_db_current()` / `water_current()` so water station map coordinates are present in DB-path responses — H/L, score 3.0; ties current top 10, does not displace
 
-### Run #37 — 2026-05-29 — Lens: UX / UI flaws
-**Scope:** Third UX/UI pass. All components in `components/` (ChatView, AnalysisView, DataExplorer, Dashboard, CalendarView, Sidebar, Header, SettingsView, LoadingStates, Toast); route configuration in `App.tsx`; test files `tests/routing.test.tsx` and `tests/accessibility.test.tsx`. Cross-referenced archived findings from runs #7 and #22 to exclude previously-reported items.
-
-**Findings:**
-
-- OBSERVATION: `App.tsx:1-202` and `components/ChatView.tsx`, `components/CalendarView.tsx` — Both `ChatView` and `CalendarView` are fully-implemented components that are never imported or mounted anywhere in the application's route tree. `App.tsx` defines six routes (`/dashboard`, `/air-quality-map`, `/analysis`, `/explore`, `/maps`, `/settings`) but neither `/chat` nor any calendar path exists. `Sidebar.tsx` lists five nav items with no reference to either component. Both components are functionally complete — `ChatView` has a working message loop and input field; `CalendarView` has a full month/list view with hourly charts and forecast data. However, end-users can never navigate to either view. The `tests/routing.test.tsx:69-243` and `tests/accessibility.test.tsx:300` test suite, by contrast, asserts the existence of a `/chat` route with a "Chat Analyst" sidebar link — meaning those tests will fail in any browser-based integration test run (the tests render a stub `Sidebar` that references `/chat`, but real users get no such link). Fix: add `/chat` and `/calendar` routes to `App.tsx`; add corresponding nav items to `Sidebar.tsx` with shortcuts `Alt+C` / `Alt+L`; lazy-import both components analogously to existing routes.
-
-- OBSERVATION: `components/CalendarView.tsx:21` — `useState(new Date('2025-11-13'))` hardcodes the calendar's initial view month to November 2025. As of today (2026-05-29), this is 6+ months in the past. If `CalendarView` were mounted, the calendar would open 6+ months behind the current date; users would need to click "Next →" repeatedly to reach the current month. The `dashboardData`'s `dailyForecast` array contains dates starting at `2025-11-13`, so the data availability happens to match — but the UX implication is that the calendar doesn't initialize at "today." Fix: replace the hardcoded date with `useState(new Date())` so the calendar opens at the current month, then let `getDayData` return `null` for out-of-range dates (which is already handled via the `!dayData` disabled-button path).
-
-- OBSERVATION: `components/DataExplorer.tsx:393` and `components/AnalysisView.tsx:450` — Active Recommendation row #1 flags `AnalysisView.tsx` for `dangerouslySetInnerHTML` XSS, but the identical unsafe pattern exists in `DataExplorer.tsx:393`: `dangerouslySetInnerHTML={{ __html: claudeResult.replace(/\n/g, '<br />') }}`. `claudeResult` originates from `getDeepAnalysisResponse()` (`aiService.ts`), which passes the raw backend LLM response string to the component. The `.replace(/\n/g, '<br />')` transformation only converts newlines; it leaves all other HTML tags and script elements intact. A backend response containing `<img src=x onerror=alert(1)>` or any `<script>` tag would execute in the user's browser context. Since the analytics route does not sanitize LLM output before returning it (`geointellisense-analytics/app/routes/deep_analysis.py` returns `{"analysis": result}` verbatim), both components are live XSS vectors whenever the backend is online. Fix: apply DOMPurify or a structural markdown renderer (e.g., `react-markdown`) in both `AnalysisView.tsx:450` and `DataExplorer.tsx:393`, replacing the unsafe `dangerouslySetInnerHTML` pattern.
-
-- OBSERVATION: `components/ChatView.tsx:84` — The chat input uses `onKeyPress={(e) => e.key === 'Enter' && handleSend()}`. `onKeyPress` is marked as deprecated in the HTML5 spec and in React (deprecated since React 17). Modern browsers remove it from the event model in various edge cases; it also does not fire for all keys on non-US keyboard layouts and does not fire for `Enter` in combination with `Ctrl` or `Meta` on some platforms. Keyboard users who submit via Enter may encounter silent failures as browsers phase out `onKeyPress` support. The correct replacement is `onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}` (with `!e.shiftKey` to allow multi-line input via Shift+Enter, which is a common chat-UX expectation). Fix: replace `onKeyPress` with `onKeyDown` at `ChatView.tsx:84`.
-
-- OBSERVATION: `components/AnalysisView.tsx:420-426` — The prompt `<textarea>` rendered for non-forecast analysis tools has no accessible label. It has no `id`, no `htmlFor`/`aria-labelledby` association, and no `aria-label` — only a `placeholder` attribute. WCAG 2.1 Success Criterion 1.3.1 (Info and Relationships) requires form controls to have a programmatic label; `placeholder` alone does not satisfy this criterion because assistive technologies do not announce placeholder text as a label when the field has focus or is navigated to by form scan. Additionally, `Dashboard.tsx:516-528` renders location toggle buttons (Valley Average, Bakersfield, etc.) without `aria-pressed` attributes — screen readers cannot communicate the selected/deselected state of these buttons even though the visual styling changes. Fix: add `id="prompt-input"` and a visually-hidden `<label htmlFor="prompt-input">Analysis prompt</label>` at `AnalysisView.tsx:420`; add `aria-pressed={selectedLocations.includes(loc)}` to each location button at `Dashboard.tsx:520`.
-
-**Proposed actions:**
-- Add `/chat` and `/calendar` routes to `App.tsx`; add nav items to `Sidebar.tsx` — H/L, score 3.0; ties current top 10, does not displace
-- Replace hardcoded `new Date('2025-11-13')` with `new Date()` in `CalendarView.tsx:21` — M/L, score 2.0; does not enter top 10
-- Extend row #1 fix scope to `DataExplorer.tsx:393` — apply DOMPurify or `react-markdown` in both components — H/L, score 3.0; ties current top 10, does not displace
-- Replace `onKeyPress` with `onKeyDown` at `ChatView.tsx:84` — M/L, score 2.0; does not enter top 10
-- Add programmatic label to `AnalysisView.tsx:420` textarea; add `aria-pressed` to Dashboard location buttons — M/L, score 2.0; does not enter top 10
-
 ## 📚 Archive (one line per past run)
+- Run #37 (2026-05-29) — Lens: UX / UI flaws — 5 findings — 0 promoted to Active
 - Run #36 (2026-05-29) — Lens: TS ↔ Python contract — 5 findings — 0 promoted to Active
 - Run #35 (2026-05-29) — Lens: Test coverage gaps — 5 findings — 0 promoted to Active
 - Run #34 (2026-05-29) — Lens: Perf hot paths — 4 findings — 0 promoted to Active
@@ -161,3 +162,4 @@ Last run: #39 — Lens: Security
 - Run #37: lens 7 (UX / UI flaws) — findings added
 - Run #38: lens 8 (Data pipeline integrity) — findings added
 - Run #39: lens 9 (Security) — findings added
+- Run #40: lens 10 (Observability) — findings added
