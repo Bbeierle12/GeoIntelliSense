@@ -1,6 +1,6 @@
 # GeoIntelliSense — Living Improvement Plan
-Last updated: 2026-06-01T21:10:00Z
-Last run: #112 — Lens: UX / UI flaws
+Last updated: 2026-06-01T22:15:00Z
+Last run: #113 — Lens: Data pipeline integrity
 
 ## 🎯 Active Recommendations (top 10, re-ranked every run)
 | # | Title | Axis | Impact (H/M/L) | Effort (H/M/L) | First seen (run #) | Status |
@@ -9,14 +9,51 @@ Last run: #112 — Lens: UX / UI flaws
 | 2 | Add retry+backoff to Rust `PurpleAirClient::fetch_sensors` | Data pipeline | H | L | 8 | Open |
 | 3 | Redis-down skips all PurpleAir/earthquake polling — default toggle to ON when Redis unavailable | Data pipeline | H | L | 8 | Open |
 | 4 | Propagate `sessionId` through chat calls in `aiService.ts` | TS↔Py contract | H | L | 6 | Open |
-| 5 | Batch DB writes in `persist.rs` with UNNEST | Perf | H | L | 4 | Open |
-| 6 | `GET /api/maps-config` exposes Google Maps API key to unauthenticated callers | Security | H | L | 9 | Open |
-| 7 | `POST /api/predict/train` is unauthenticated — any client can trigger expensive model retraining | Security | H | L | 9 | Open |
-| 8 | No logging configuration in analytics `main.py` — all `logger.info/debug` calls silently dropped | Observability | H | L | 10 | Open |
-| 9 | Health checks return static `"ok"` without probing DB or Redis — failing containers pass healthcheck | Observability | H | L | 10 | Open |
-| 10 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
+| 5 | `GET /api/maps-config` exposes Google Maps API key to unauthenticated callers | Security | H | L | 9 | Open |
+| 6 | `POST /api/predict/train` is unauthenticated — any client can trigger expensive model retraining | Security | H | L | 9 | Open |
+| 7 | No logging configuration in analytics `main.py` — all `logger.info/debug` calls silently dropped | Observability | H | L | 10 | Open |
+| 8 | Health checks return static `"ok"` without probing DB or Redis — failing containers pass healthcheck | Observability | H | L | 10 | Open |
+| 9 | `/api/predictive-analysis` and `/api/weather-forecast` have no auth or rate limiting — any public caller can burn Anthropic credits | Security/LLM | H | L | 13 | Open |
+| 10 | `context.py:394` SELECT uses `unit` instead of `units` — water-level data silently absent from all Claude system prompts | Data pipeline | H | L | 113 | Open |
 
 ## 🔬 Latest Findings (last 3 runs, full detail)
+### Run #113 — 2026-06-01 — Lens: Data pipeline integrity
+**Scope:** Ninth data pipeline integrity pass. Examined: `geointellisense-ingestion/src/purpleair.rs` (full), `geointellisense-ingestion/src/usgs.rs` (full), `geointellisense-ingestion/src/redis_cache.rs` (full), `geointellisense-ingestion/src/broadcast.rs` (full), `geointellisense-ingestion/src/main.rs` (full), `geointellisense-ingestion/src/aqi.rs` (full), `geointellisense-ingestion/src/config.rs`, `geointellisense-ingestion/src/routes/sse.rs`, `geointellisense-analytics/app/http_client.py` (full), `geointellisense-analytics/app/clients/nasa_firms.py` (full), `geointellisense-analytics/app/clients/usgs_water.py` (full), `geointellisense-analytics/app/routes/fires.py` (full), `geointellisense-analytics/app/routes/water.py` (full), `geointellisense-analytics/app/context.py` (full), `geointellisense-analytics/app/source_toggles.py`, `db/migrations/011_water_readings.sql`. Cross-checked against Active Recommendations and runs #111–#112 (Latest Findings) plus archived data pipeline runs #8, #23, #38, #53, #68, #83, #98 (one-line archive) to confirm findings are new.
+
+**Findings:**
+
+- OBSERVATION: `geointellisense-analytics/app/context.py:397,419` — The `_get_water_context()` function (called inside `build_live_context()` which feeds Claude's system prompt) executes a query that selects the column `unit` (singular) from the `water_readings` table: `SELECT DISTINCT ON (site_id) site_id, site_name, value, unit, time FROM water_readings`. However, `db/migrations/011_water_readings.sql:7` defines the column as `units` (plural), and the corresponding `_persist_readings()` at `routes/water.py:291` inserts into `units`. The correct pattern — aliasing the real column as the shorter name — is used in `routes/water.py:91` and `routes/water.py:103` which both write `units AS unit`. The context.py query omits the alias, so PostgreSQL/asyncpg raises `UndefinedColumnError: column "unit" does not exist` at runtime. This exception is caught by the bare `except Exception as e: logger.warning(...)` at `context.py:404`, which silently returns `{"stations": [], "freshness": {"status": "unavailable"}}`. The consequence is that water-level data (USGS discharge readings for 7 SJV stations) is **never** injected into Claude's live context, regardless of whether the USGS Water poller is active and has fresh DB data — active recs rows for data pipeline assume the source is wired up, but this bug severs the final delivery step. PROPOSAL: In `_get_water_context()` at `context.py:397`, replace `value, unit, time` with `value, units AS unit, time` — L/L effort; promotes to Active Recommendations as row #10.
+
+- OBSERVATION: `geointellisense-ingestion/src/usgs.rs:107` — The `fetch_recent()` function contains `let client = reqwest::Client::new();` inside the function body. `fetch_recent()` is called by `fetch_and_persist_bbox()` which is called by `fetch_and_persist()` on every earthquake poll cycle. With the default `earthquake_interval_secs = 300` (5 minutes, from `config.rs:35`), this means a new `reqwest::Client` is constructed 288 times per day. Each `Client::new()` allocates a new connection pool, a new TLS session cache, and new keep-alive state — none of which carry over to the next poll cycle, preventing TCP connection reuse. This contrasts with `purpleair.rs:44` where `PurpleAirClient::new()` creates the client once in the constructor and reuses `self.http` across all `fetch_sensors()` calls. The USGS API endpoint (`earthquake.usgs.gov`) supports keep-alive and benefits from connection reuse; eliminating repeated TLS handshakes reduces per-poll latency by ~100–200ms. PROPOSAL: Add a `UsgsClient` struct holding `http: reqwest::Client` (mirroring the `PurpleAirClient` pattern), pass it into `spawn_earthquake_poller()` and `fetch_recent()`, and initialize it once in `main.rs` alongside `PurpleAirClient` — M/M effort.
+
+- OBSERVATION: `geointellisense-analytics/app/http_client.py:31-34` — The retry loop creates a new `httpx.AsyncClient` on every attempt:
+  ```python
+  for attempt in range(max_retries + 1):
+      try:
+          async with httpx.AsyncClient(timeout=timeout) as client:
+              resp = await client.request(...)
+  ```
+  Because `async with httpx.AsyncClient(...) as client:` is **inside** the `for attempt in range(max_retries + 1):` loop body, each retry attempt (whether triggered by a `TimeoutException`, a 5xx response, or a 429) creates a brand-new connection pool and discards the previous one. This means: (a) the TCP connection established on attempt 0 is closed before the retry wait begins, so attempt 1 must perform a full new DNS lookup and TLS handshake; (b) `Retry-After` sleep (line 44) delays the retry but the connection teardown still happens before the sleep, so the wait time is wasted; (c) the intent of the shared `http_client.py` module — to improve over raw one-off `httpx` calls — is partially defeated for the 5xx/429 retry path. This affects all six clients that use `http_fetch`: `nasa_firms.py`, `usgs_water.py`, `airnow.py`, `epa_aqs.py`, `noaa_cdo.py`, and others. PROPOSAL: Move the `async with httpx.AsyncClient(timeout=timeout) as client:` block to wrap the entire `for attempt` loop, replacing lines 31–34 with a single outer `async with` and an inner loop that calls `client.request(...)` directly — L/L effort; eliminates connection teardown between retries.
+
+- OBSERVATION: `geointellisense-analytics/app/context.py:61-68` — `build_live_context()` awaits eight data-fetching coroutines sequentially:
+  ```python
+  context["aqi"] = await _get_aqi_context(pool)
+  context["forecast"] = await _get_forecast_context(pool)
+  context["fires"] = await _get_fire_context(pool)
+  context["earthquakes"] = await _get_earthquake_context(pool)
+  context["water"] = await _get_water_context(pool)
+  context["enviroscreen"] = await _get_enviroscreen_context(pool)
+  context["inversion"] = _get_inversion_context()
+  context["prediction"] = await _get_prediction_context(pool)
+  ```
+  Each coroutine issues one or more asyncpg queries. `_get_fire_context()` alone executes three queries (aggregate count, nearest-fire lookup, upwind count). `_get_prediction_context()` invokes the ML model. Because they are awaited sequentially, the total `build_live_context()` latency is the sum of all eight durations. Since asyncpg uses connection pooling, all DB-bound coroutines can run concurrently without additional connections. `build_live_context()` is called on every request to any Claude AI endpoint (via `claude.py:get_system_with_live_context`), so its latency directly adds to every AI response time. Using `asyncio.gather()` would reduce the latency to the duration of the slowest individual query rather than the total sum. PROPOSAL: Replace the eight sequential awaits in `build_live_context()` at `context.py:61-68` with a single `asyncio.gather()` call using `return_exceptions=True` so a slow or failing query does not block others — L/L effort.
+
+**Proposed actions:**
+- Fix `unit` → `units AS unit` in `_get_water_context()` at `context.py:397`; also fix `r["unit"]` → `r["units"]` at `context.py:419` — L/L effort (promotes to Active Recommendations row #10)
+- Introduce a `UsgsClient` struct in `usgs.rs` holding a reusable `reqwest::Client`; pass it into the earthquake poller in `broadcast.rs` and `main.rs` — M/M effort
+- Move `async with httpx.AsyncClient(timeout=timeout) as client:` outside the retry loop in `http_client.py:31-34` to eliminate connection teardown between retry attempts — L/L effort
+- Replace eight sequential `await` calls in `build_live_context()` at `context.py:61-68` with `asyncio.gather()` — L/L effort
+
 ### Run #112 — 2026-06-01 — Lens: UX / UI flaws
 **Scope:** Eighth UX / UI flaws pass. Examined: `index.html` (meta tags, viewport, importmap), `styles/theme-light.css` (light/high-contrast/font-size/reduced-motion classes), `App.tsx` (layout structure, skip links, keyboard shortcuts), `components/Header.tsx`, `components/Sidebar.tsx`, `components/ChatView.tsx`, `components/AnalysisView.tsx`, `components/Dashboard.tsx`, `components/SettingsView.tsx`, `components/LoadingStates.tsx`, `components/Toast.tsx`, `components/DataExplorer.tsx` (first 80 lines), `components/CalendarView.tsx` (first 50 lines), `components/dashboard/widgets/AqiGaugeWidget.tsx`. Cross-checked against Active Recommendations and runs #110–#111 (Latest Findings) plus archived UX/UI runs #7, #22, #37, #52, #67, #82, #97 (one-line archive only) to confirm findings are new.
 
@@ -55,26 +92,8 @@ Last run: #112 — Lens: UX / UI flaws
 - Add `model_config = ConfigDict(populate_by_name=True)` with camelCase alias to `ChatRequest.session_id` at `chat.py:18` to resolve request/response naming asymmetry blocking Active Rec #4 — L/L effort
 - Replace `resp.content[0].text` at `low_latency.py:37` with safe iteration using `hasattr` guard — L/L effort
 
-### Run #110 — 2026-06-01 — Lens: Test coverage gaps
-**Scope:** Eighth test coverage gaps pass. Examined: all files under `tests/` (7 test files), `vite.config.ts` (test block configuration), `utils/colorScales.ts` (396 lines), `utils/weatherUtils.ts` (69 lines), `utils/geo3d.ts` (328 lines), `utils/interpolation.ts` (441 lines), `data/dashboardData.ts` (private helper functions at lines 124–191), `geointellisense-ingestion/src/aqi.rs` (pure functions), all 15 Rust `.rs` files under `geointellisense-ingestion/src/` for `#[cfg(test)]` modules, `geointellisense-analytics/` tree for any Python test files. Cross-checked against Active Recommendations and runs #108–#109 (Latest Findings) plus archived test-coverage runs #5, #20, #35, #50, #65, #80, #95 (one-line archive only) to confirm findings are new.
-
-**Findings:**
-
-- OBSERVATION: `utils/colorScales.ts` (396 lines) — Zero test coverage. This file is imported by six components: `AirQualityMapView.tsx:37`, `components/3d/PollutionVolume.tsx:17`, `components/3d/CrossSectionView.tsx:11`, `components/3d/CityMarkers.tsx:14`, `components/3d/TerrainMesh.tsx:19`, `components/3d/UIPanels.tsx:7`. It exports approximately 15 pure, non-THREE.js functions: `getAQICategory`, `getAQIColor`, `hexToRgb`, `rgbToHex`, `interpolateColorStops`, `blendColors`, `adjustBrightness`, `getContrastColor`, `aqiToOpacity`, `generateAQILegendItems`, `getInterpolatedAQIColor`, and others. These functions drive all color rendering in the 2D map and 3D scene. Specific untested edge cases: `hexToRgb` at `colorScales.ts:119` silently returns `{r:0,g:0,b:0}` on malformed input (no thrown error); `getContrastColor` at `colorScales.ts:307` uses luminance threshold `> 0.5` — a boundary test at exactly 0.5 would verify the operator direction; `interpolateColorStops` at `colorScales.ts:154–175` clamps `position` to [0,1] then walks the stop array — a test with `position=0`, `position=1`, and `position=0.5` on a two-stop gradient would verify the linear interpolation math. The THREE.js-dependent texture functions (`createGradientTexture`, `createDataTexture`, `createVolumeTexture`) are harder to test in jsdom but the 15 pure functions have zero setup cost. PROPOSAL: Add `tests/colorScales.test.ts` covering `hexToRgb`/`rgbToHex` round-trip, `getAQICategory` boundary values (49/50/51, 100/101, 150/151, 200/201, 300/301), `interpolateColorStops` at edges, `getContrastColor` black/white selection, `blendColors` at factor=0 and factor=1 — L/L effort.
-
-- OBSERVATION: `utils/weatherUtils.ts:1–69` and `data/dashboardData.ts:124–191` — Four meteorological formula functions are exported from `utils/weatherUtils.ts` (`calculateFeelsLike`, `calculateET0`, `calculateSunTimes`, `determineWeatherCondition`) and simultaneously duplicated as private functions in `data/dashboardData.ts:124–191`. Neither copy has any tests. `utils/weatherUtils.ts` is imported by `services/WeatherService.ts:1` and its `calculateFeelsLike` (9-term NOAA heat index polynomial) and `calculateET0` (Penman-Monteith evapotranspiration) are used to compute values surfaced directly to users at `WeatherService.ts:88–89`. The two implementations appear textually identical (no divergence observed in constants or formula structure), but because they live in separate files with no test linking them, any future edit to one copy would not be caught as a divergence. The NOAA heat index formula at `weatherUtils.ts:4–9` has nine terms; an off-by-one in any constant (e.g., `2.04901523` → `2.049015`) would produce wrong user-visible "feels like" temperatures under heat-index conditions (temp ≥ 80°F, humidity ≥ 40%). `determineWeatherCondition` at `weatherUtils.ts:58` has 10 conditions but no test for which branch takes precedence when multiple conditions are simultaneously true (e.g., `precipProb > 70` and `temp > 100`). PROPOSAL: Add `tests/weatherUtils.test.ts` covering all four functions; specifically test `calculateFeelsLike` at the heat-index boundary (temp=80, humidity=40), wind-chill boundary (temp=50, windSpeed=3), and neutral path; verify `calculateET0` returns 0 for `solarRadiation=0`; verify `determineWeatherCondition` precedence order; remove the private duplicate at `dashboardData.ts:124–191` and import from `utils/weatherUtils.ts` instead — L/L effort.
-
-- OBSERVATION: `vite.config.ts:55–62` — The `test` configuration block has `globals: true`, `environment: 'jsdom'`, `setupFiles: './tests/setup.ts'`, and `css: true`, but contains no `coverage` sub-object. The `test:coverage` npm script at `package.json:11` runs `vitest --coverage` and `@vitest/coverage-v8@^4.0.13` is installed as a devDependency. However, without a `coverage.thresholds` block, `vitest --coverage` will always exit with code 0 regardless of the actual coverage percentage. There are also no `coverage.include` or `coverage.exclude` patterns, so the report will include test infrastructure files (`tests/setup.ts`, `tests/mocks/handlers.ts`) in coverage counts, inflating the apparent coverage metrics. No `coverage.reporter` setting means the output format defaults to `text` only — no `lcov` or `html` report is generated for CI artifact upload. Practically, coverage is measured but never enforced; a refactor that drops from 80% to 5% would not break any CI step. PROPOSAL: Add a `coverage` block to `vite.config.ts:test` with `provider: 'v8'`, `reporter: ['text', 'lcov', 'html']`, `include: ['**/*.{ts,tsx}']`, `exclude: ['tests/**', '**/*.d.ts', 'vite.config.ts']`, and `thresholds: { lines: 50, functions: 50, branches: 40, statements: 50 }` as an achievable starting baseline — L/L effort.
-
-- OBSERVATION: `geointellisense-ingestion/src/aqi.rs` and all 15 Rust source files — No `#[cfg(test)]` module exists anywhere in the ingestion service source tree (confirmed by grep across all `.rs` files). The `aqi_category` function at `aqi.rs:77–85` is the single canonical AQI-to-category mapping for the entire ingestion service; it drives the `category` and `color` fields on every `AqiReading` broadcast to SSE consumers. It has six match arms covering the EPA AQI scale. Untested boundary values: AQI=0 (should be "Good"), AQI=50 (should be "Good"), AQI=51 (should be "Moderate"), AQI=100 (should be "Moderate"), AQI=101 (should be "Unhealthy for Sensitive Groups"), AQI=150, AQI=151, AQI=200, AQI=201, AQI=300, AQI=301, AQI=500. The `round2` helper at `aqi.rs:130` is called for every sensor value in `generate_readings`; no test verifies its behavior at the floating-point boundary (e.g., `round2(0.005)` — banker's rounding vs. half-up). Cargo's built-in test harness (`cargo test`) requires zero new dependencies; a `#[cfg(test)] mod tests { ... }` block in `aqi.rs` with `#[test]` functions for `aqi_category` boundary values and a `round2` smoke test is the lowest-friction test addition in the entire codebase. PROPOSAL: Add a `#[cfg(test)]` module to `aqi.rs` with `#[test]` cases for all six AQI category boundaries (50, 51, 100, 101, 150, 151, 200, 201, 300, 301) and two `round2` cases; run `cargo test` in CI — L/L effort.
-
-**Proposed actions:**
-- Add `tests/colorScales.test.ts` covering `hexToRgb`/`rgbToHex` round-trip, `getAQICategory` at all 6 EPA boundary pairs, `interpolateColorStops` edge positions, `getContrastColor` luminance threshold — L/L effort
-- Add `tests/weatherUtils.test.ts` covering all four formula functions with boundary conditions; remove private duplicate at `data/dashboardData.ts:124–191` — L/L effort
-- Add `coverage` block to `vite.config.ts:test` with `v8` provider, `lcov`/`html` reporters, `include`/`exclude` patterns, and minimum thresholds (50% lines/functions as baseline) — L/L effort
-- Add `#[cfg(test)]` module to `geointellisense-ingestion/src/aqi.rs` covering all `aqi_category` match-arm boundaries and `round2` edge cases; integrate `cargo test` into CI — L/L effort
-
 ## 📚 Archive (one line per past run)
+- Run #110 (2026-06-01) — Lens: Test coverage gaps — 4 findings — 0 promoted to Active
 - Run #109 (2026-06-01) — Lens: Perf hot paths — 4 findings — 0 promoted to Active
 - Run #108 (2026-06-01) — Lens: Dependency health — 4 findings — 0 promoted to Active
 - Run #107 (2026-06-01) — Lens: Module boundaries — 4 findings — 0 promoted to Active
@@ -298,3 +317,4 @@ Last run: #112 — Lens: UX / UI flaws
 - Run #110: lens 5 (Test coverage gaps) — findings added
 - Run #111: lens 6 (TS ↔ Python contract) — findings added
 - Run #112: lens 7 (UX / UI flaws) — findings added
+- Run #113: lens 8 (Data pipeline integrity) — findings added
