@@ -4,13 +4,14 @@ import traceback
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.config import settings
 from app.clients.epa_aqs import EpaAqsClient, SJV_COUNTIES, PARAMS_ALL, DailySummary
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -76,10 +77,18 @@ async def epa_aqi(
 
 @router.post("/api/epa-aqs/backfill")
 async def start_backfill(
-    start_year: int = Query(2023, description="Start year"),
-    end_year: int = Query(2025, description="End year (inclusive)"),
+    request: Request,
+    start_year: int = Query(2023, ge=1990, le=2100, description="Start year"),
+    end_year: int = Query(2025, ge=1990, le=2100, description="End year (inclusive)"),
 ):
     global _backfill_task, _backfill_status
+
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
+    if end_year < start_year or end_year - start_year > 10:
+        return JSONResponse(status_code=400, content={"error": "Invalid year range", "details": "end_year must be >= start_year, span <= 10 years"})
 
     if not settings.epa_aqs_email or not settings.epa_aqs_key:
         return JSONResponse(status_code=503, content={"error": "EPA AQS not configured"})

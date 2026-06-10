@@ -1,13 +1,22 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.middleware import check_admin_auth, check_rate_limit
 
 router = APIRouter()
 
 
 @router.get("/api/maps-config")
-async def maps_config():
+async def maps_config(request: Request):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
+    rate_err = await check_rate_limit(request, "data_default")
+    if rate_err:
+        return rate_err
+
     api_key = settings.google_maps_api_key
     if not api_key:
         return JSONResponse(

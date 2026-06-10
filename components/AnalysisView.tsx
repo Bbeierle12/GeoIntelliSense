@@ -447,7 +447,7 @@ const AnalysisView: React.FC = () => {
             {result && (
                 <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg space-y-4">
                     <h3 className="text-xl font-semibold">Analysis Result</h3>
-                    <div className="prose prose-invert max-w-none text-slate-300 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: result.replace(/\n/g, '<br />') }}></div>
+                    <div className="prose prose-invert max-w-none text-slate-300 whitespace-pre-wrap">{result}</div>
                     {groundingChunks.length > 0 && (
                         <div className="pt-4 border-t border-brand-secondary">
                             <h4 className="font-semibold mb-2">Sources:</h4>

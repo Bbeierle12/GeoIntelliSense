@@ -79,6 +79,30 @@ async def check_rate_limit(request: Request, tier: str = "data_default") -> JSON
     return None
 
 
+def check_admin_auth(request: Request) -> JSONResponse | None:
+    """Validate admin token for privileged endpoints (training, backfills, config).
+
+    If no ADMIN_TOKEN is set, auth is skipped (dev mode).
+    """
+    if not settings.admin_token:
+        return None
+
+    api_key = request.headers.get("x-api-key", "")
+    if not api_key:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "API key required", "details": "Set x-api-key header"},
+        )
+
+    if api_key == settings.admin_token:
+        return None
+
+    return JSONResponse(
+        status_code=403,
+        content={"error": "Invalid API key"},
+    )
+
+
 def check_ai_auth(request: Request) -> JSONResponse | None:
     """Validate API key for AI endpoints. Returns JSONResponse if unauthorized, None if OK.
 

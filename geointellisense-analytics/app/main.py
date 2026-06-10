@@ -77,7 +77,9 @@ app.add_middleware(
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "x-api-key", "x-admin-token"],
-    allow_credentials=True,
+    # Wildcard origins + credentials is forbidden by the CORS spec; auth uses
+    # the x-api-key header, which does not require credentialed requests.
+    allow_credentials="*" not in _allowed_origins,
 )
 
 app.include_router(health_router)
