@@ -6,7 +6,10 @@ export default defineConfig(() => {
     return {
       server: {
         port: 5174,
-        host: '0.0.0.0',
+        // Bind to loopback only — exposing the dev server on all interfaces
+        // amplifies dev-server file-read advisories (e.g. GHSA-p9ff-h696-f583).
+        // Use `vite --host` explicitly when LAN access (e.g. device testing) is needed.
+        host: '127.0.0.1',
       },
       plugins: [react()],
       resolve: {
