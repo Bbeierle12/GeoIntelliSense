@@ -7,7 +7,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import settings, allowed_web_origins
 from app.database import get_pool, close_pool
 from app.cache import get_redis, close_redis
 from app.routes.health import router as health_router
@@ -60,11 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="GeoIntelliSense Analytics", version="0.1.0", lifespan=lifespan)
 
 # CORS — restrict to known origins in production
-_allowed_origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:8080",
-]
+_allowed_origins = allowed_web_origins()
 # Allow all origins only if no admin token is set (dev mode)
 if not settings.admin_token:
     _allowed_origins = ["*"]
