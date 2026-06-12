@@ -64,3 +64,11 @@ This application uses a secure client-server architecture:
 - **Backend** (Express): Runs on `http://localhost:3001`
 
 API keys are stored securely in `.env.local` and only accessed by the backend server. The frontend makes requests to the backend API endpoints, which handle all communication with Google services.
+
+## Android / Google Play
+
+This repository now includes a Capacitor Android wrapper for Play Store publishing.
+
+- Runbook: `docs/ANDROID_PLAY_STORE.md`
+- Data safety mapping: `docs/PLAY_STORE_DATA_SAFETY.md`
+- Privacy policy template: `PRIVACY_POLICY.md`

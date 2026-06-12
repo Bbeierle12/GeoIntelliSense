@@ -30,6 +30,7 @@ import { SparklesIcon } from './icons/SparklesIcon';
 import { TrendingUpIcon } from './icons/TrendingUpIcon';
 import { CloudIcon } from './icons/CloudIcon';
 import { dashboardData, cityLocations, LocationKey } from '../data/dashboardData';
+import { requestCurrentLocation } from '../services/locationService';
 
 const toolConfig = {
     quick: {
@@ -76,6 +77,9 @@ const parseMonthString = (monthStr: string): Date => {
     return new Date(parseInt(`20${year}`), monthIndex);
 };
 
+const DEFAULT_LOCATION = { latitude: 36.7378, longitude: -119.7871 };
+const LOCATION_DISCLOSURE_KEY = 'geointellisense.location.disclosureAccepted';
+
 const AnalysisView: React.FC = () => {
     const { isAvailable: hasApiKey, isLoading: isApiLoading, error: apiError } = useApiStatus();
     const [tool, setTool] = useState<AnalysisTool>('predictive');
@@ -86,26 +90,38 @@ const AnalysisView: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [location, setLocation] = useState<{ latitude: number, longitude: number } | null>(null);
+    const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
     const [predictiveLocation, setPredictiveLocation] = useState<Exclude<LocationKey, 'Valley Average'>>('Bakersfield');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
 
+    const setDefaultLocation = useCallback(() => {
+        setLocation(DEFAULT_LOCATION);
+    }, []);
+
+    const requestLocationWithDisclosure = useCallback(async () => {
+        try {
+            const coords = await requestCurrentLocation();
+            setLocation(coords);
+            localStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true');
+            setShowLocationDisclosure(false);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to access location.';
+            console.warn(`Geolocation error: ${message}`);
+            setDefaultLocation();
+            setShowLocationDisclosure(false);
+        }
+    }, [setDefaultLocation]);
+
     useEffect(() => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                setLocation({
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                });
-            },
-            (err) => {
-                console.warn(`Geolocation error: ${err.message}`);
-                // Fallback to a location in San Joaquin Valley (Fresno)
-                setLocation({ latitude: 36.7378, longitude: -119.7871 });
-            }
-        );
-        
+        if (localStorage.getItem(LOCATION_DISCLOSURE_KEY) === 'true') {
+            requestLocationWithDisclosure();
+        } else {
+            setShowLocationDisclosure(true);
+            setDefaultLocation();
+        }
+
         // Set default date range for predictive tool to the last 12 months of available data.
         const sampleData = dashboardData['Bakersfield'].historicalAqi;
         if (sampleData.length > 0) {
@@ -117,7 +133,7 @@ const AnalysisView: React.FC = () => {
             setStartDate(formatToInput(defaultStartDate));
             setEndDate(formatToInput(lastMonth));
         }
-    }, []);
+    }, [requestLocationWithDisclosure, setDefaultLocation]);
     
     const predictiveChartData = useMemo(() => {
         if (!startDate || !endDate || !predictiveLocation) return [];
@@ -279,6 +295,32 @@ const AnalysisView: React.FC = () => {
                     <div>
                         <p className="font-semibold">Backend Server Required</p>
                         <p className="text-sm mt-1">Start the backend services with <code className="bg-yellow-950 px-1.5 py-0.5 rounded">docker compose up</code> and ensure <code className="bg-yellow-950 px-1.5 py-0.5 rounded">ANTHROPIC_API_KEY</code> is configured in your <code className="bg-yellow-950 px-1.5 py-0.5 rounded">.env</code> file.</p>
+                    </div>
+                </div>
+            )}
+            {showLocationDisclosure && (
+                <div className="bg-sky-950/40 border border-sky-700/50 text-sky-100 p-4 rounded-lg space-y-3">
+                    <p className="font-semibold">Location permission disclosure</p>
+                    <p className="text-sm">
+                        GeoIntelliSense uses your precise location to provide local environmental insights.
+                        If enabled, your location may be sent to GeoIntelliSense backend and AI services to answer location-based questions.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={requestLocationWithDisclosure}
+                            className="px-3 py-1.5 text-sm rounded bg-brand-primary text-white hover:bg-sky-600 transition-colors"
+                        >
+                            I agree, continue
+                        </button>
+                        <button
+                            onClick={() => {
+                                setShowLocationDisclosure(false);
+                                setDefaultLocation();
+                            }}
+                            className="px-3 py-1.5 text-sm rounded border border-slate-500 text-slate-200 hover:bg-slate-700/50 transition-colors"
+                        >
+                            Continue without location
+                        </button>
                     </div>
                 </div>
             )}

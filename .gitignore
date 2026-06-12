@@ -44,3 +44,13 @@ geointellisense-analytics/data/
 
 # Docker
 docker-compose.override.yml
+
+# Android signing secrets
+keystore.properties
+*.keystore
+*.jks
+
+# Capacitor generated web assets (re-generated via `npm run build:mobile`)
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json

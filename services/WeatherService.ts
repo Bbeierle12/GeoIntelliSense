@@ -1,11 +1,5 @@
 import { calculateFeelsLike, calculateET0 } from '../utils/weatherUtils';
-
-const INGESTION_URL = import.meta.env.VITE_INGESTION_URL
-  ? `${import.meta.env.VITE_INGESTION_URL}/api`
-  : 'http://localhost:3001/api';
-const ANALYTICS_URL = import.meta.env.VITE_GATEWAY_URL
-  ? `${import.meta.env.VITE_GATEWAY_URL}/api`
-  : 'http://localhost:8080/api';
+import { gatewayApiUrl, ingestionApiUrl } from '../config/api';
 
 export interface WeatherData {
     temp: number;
@@ -56,7 +50,7 @@ export class WeatherService {
             return this.cachedReadings;
         }
 
-        const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
+        const response = await fetch(`${ingestionApiUrl}/aqi-snapshot`);
         if (!response.ok) throw new Error('Snapshot request failed');
 
         const data = await response.json();
@@ -97,7 +91,7 @@ export class WeatherService {
 
     async getForecast(_lat: number, _lon: number): Promise<ForecastData[]> {
         try {
-            const response = await fetch(`${ANALYTICS_URL}/forecast`);
+            const response = await fetch(`${gatewayApiUrl}/forecast`);
             if (!response.ok) throw new Error('Forecast request failed');
 
             const records = await response.json() as Array<{

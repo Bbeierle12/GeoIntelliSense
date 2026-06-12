@@ -137,9 +137,9 @@ describe('Security Tests', () => {
       global.fetch = mockFetch;
       
       // Simulate fetching maps config (as MapView does)
-      await fetch('http://localhost:3002/api/maps-config');
+      await fetch('http://localhost:8080/api/maps-config');
       
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:3002/api/maps-config');
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8080/api/maps-config');
     });
 
     it('should handle missing API key configuration gracefully', async () => {
@@ -149,7 +149,7 @@ describe('Security Tests', () => {
         json: () => Promise.resolve({ error: 'API key not configured' }),
       });
       
-      const response = await fetch('http://localhost:3002/api/maps-config');
+      const response = await fetch('http://localhost:8080/api/maps-config');
       
       expect(response.ok).toBe(false);
       expect(response.status).toBe(500);

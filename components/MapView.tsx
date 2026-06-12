@@ -12,8 +12,7 @@ import {
   type WaterData,
 } from '../hooks/useLiveData';
 import { useViewport, ZOOM_THRESHOLDS } from '../hooks/useViewport';
-
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
+import { gatewayBaseUrl } from '../config/api';
 
 // ── Types ───────────────────────────────────────────
 
@@ -169,7 +168,7 @@ const MapView: React.FC = () => {
 
     (async () => {
       try {
-        const res = await fetch(`${GATEWAY_URL}/api/maps-config`);
+        const res = await fetch(`${gatewayBaseUrl}/api/maps-config`);
         if (!res.ok) throw new Error('maps-config fetch failed');
         const { apiKey } = await res.json();
 

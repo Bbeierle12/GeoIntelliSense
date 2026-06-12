@@ -11,9 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
-const INGESTION_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
+import { gatewayBaseUrl, ingestionBaseUrl } from '../config/api';
 
 export type ErrorKind = 'network' | 'disabled' | 'client' | 'server' | null;
 
@@ -47,8 +45,8 @@ export function useLiveData<T>(
     if (!enabled) return;
     try {
       const base = path.startsWith('/api/aqi-') || path === '/health'
-        ? INGESTION_URL
-        : GATEWAY_URL;
+        ? ingestionBaseUrl
+        : gatewayBaseUrl;
       const res = await fetch(`${base}${path}`);
 
       if (!res.ok) {

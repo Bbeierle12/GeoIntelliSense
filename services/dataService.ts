@@ -2,10 +2,7 @@
 import { weatherService } from './WeatherService';
 import { airQualityService } from './AirQualityService';
 import { dashboardData, cityLocations } from '../data/dashboardData'; // Keep for fallback
-
-const ANALYTICS_URL = import.meta.env.VITE_GATEWAY_URL
-  ? `${import.meta.env.VITE_GATEWAY_URL}/api`
-  : 'http://localhost:8080/api';
+import { gatewayApiUrl } from '../config/api';
 
 export interface AQIRecord {
   id: string;
@@ -200,7 +197,7 @@ export class DataService {
       if (startDate) params.set('start_date', startDate.toISOString().split('T')[0]);
       if (endDate) params.set('end_date', endDate.toISOString().split('T')[0]);
 
-      const response = await fetch(`${ANALYTICS_URL}/historical-aqi?${params}`);
+      const response = await fetch(`${gatewayApiUrl}/historical-aqi?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       return await response.json() as HistoricalAQIRecord[];
@@ -222,7 +219,7 @@ export class DataService {
       if (startDate) params.set('start_date', startDate.toISOString().split('T')[0]);
       if (endDate) params.set('end_date', endDate.toISOString().split('T')[0]);
 
-      const response = await fetch(`${ANALYTICS_URL}/historical-weather?${params}`);
+      const response = await fetch(`${gatewayApiUrl}/historical-weather?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       return await response.json() as HistoricalWeatherRecord[];
