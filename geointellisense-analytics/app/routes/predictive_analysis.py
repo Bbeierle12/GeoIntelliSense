@@ -1,11 +1,12 @@
 import json
 import traceback
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.claude import get_client, get_system_with_live_context
+from app.middleware import check_rate_limit, check_ai_auth
 
 router = APIRouter()
 
@@ -37,7 +38,17 @@ class PredictiveAnalysisRequest(BaseModel):
 
 
 @router.post("/api/predictive-analysis")
-async def predictive_analysis(req: PredictiveAnalysisRequest):
+async def predictive_analysis(req: PredictiveAnalysisRequest, request: Request):
+    # Auth check
+    auth_err = check_ai_auth(request)
+    if auth_err:
+        return auth_err
+
+    # Rate limit check
+    rate_err = await check_rate_limit(request, "ai_forecast")
+    if rate_err:
+        return rate_err
+
     try:
         # Merge AQI and weather data point-by-point, matching the Express logic
         combined = []
