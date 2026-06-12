@@ -288,7 +288,7 @@ describe('Integration Tests', () => {
       );
       
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith('http://localhost:3002/api/maps-config');
+        expect(mockFetch).toHaveBeenCalledWith('http://localhost:8080/api/maps-config');
       });
     });
 

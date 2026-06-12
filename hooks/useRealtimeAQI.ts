@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { CityData } from '../components/3d/CityMarkers';
 import type { DataPoint } from '../utils/interpolation';
+import { ingestionBaseUrl } from '../config/api';
 
 // =============================================================================
 // TYPES
@@ -68,7 +69,7 @@ export interface UseRealtimeAQIReturn {
 // CONSTANTS
 // =============================================================================
 
-const API_BASE_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
+const API_BASE_URL = ingestionBaseUrl;
 const DEFAULT_RECONNECT_INTERVAL = 5000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
 

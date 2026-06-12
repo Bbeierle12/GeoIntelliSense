@@ -25,6 +25,7 @@ import { MapIcon } from './icons/MapIcon';
 import { KeyIcon } from './icons/KeyIcon';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { SettingsIcon } from './icons/SettingsIcon';
+import { gatewayBaseUrl, ingestionBaseUrl } from '../config/api';
 
 // Reusable components
 interface SettingsSectionProps {
@@ -205,12 +206,14 @@ const DataSourceToggles: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
 
-  const gwUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
-  const adminToken = 'geointelli-admin-dev';
+  const adminToken = import.meta.env.VITE_ADMIN_TOKEN?.trim() || '';
+  const adminHeaders = adminToken ? { 'X-Admin-Token': adminToken } : {};
 
   const fetchSources = async () => {
     try {
-      const res = await fetch(`${gwUrl}/api/admin/sources`);
+      const res = await fetch(`${gatewayBaseUrl}/api/admin/sources`, {
+        headers: adminHeaders,
+      });
       if (res.ok) {
         const data = await res.json();
         setSources(data.sources || {});
@@ -225,9 +228,9 @@ const DataSourceToggles: React.FC = () => {
     setToggling(source);
     try {
       const action = enable ? 'enable' : 'disable';
-      await fetch(`${gwUrl}/api/admin/sources/${source}/${action}`, {
+      await fetch(`${gatewayBaseUrl}/api/admin/sources/${source}/${action}`, {
         method: 'POST',
-        headers: { 'X-Admin-Token': adminToken },
+        headers: adminHeaders,
       });
       setSources(prev => ({
         ...prev,
@@ -243,9 +246,9 @@ const DataSourceToggles: React.FC = () => {
     setToggling('all');
     try {
       const action = enable ? 'enable-all' : 'disable-all';
-      await fetch(`${gwUrl}/api/admin/sources/${action}`, {
+      await fetch(`${gatewayBaseUrl}/api/admin/sources/${action}`, {
         method: 'POST',
-        headers: { 'X-Admin-Token': adminToken },
+        headers: adminHeaders,
       });
       setSources(prev => {
         const updated = { ...prev };
@@ -361,8 +364,7 @@ const ApiStatusIndicator: React.FC = () => {
   const checkStatus = async () => {
     setStatus('checking');
     try {
-      const rustUrl = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
-      const response = await fetch(`${rustUrl}/health`, {
+      const response = await fetch(`${ingestionBaseUrl}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
@@ -878,14 +880,22 @@ const SettingsView: React.FC = () => {
         </SettingRow>
       </SettingsSection>
 
-      {/* Data Sources Section */}
-      <SettingsSection
-        title="Data Sources"
-        description="Enable or disable external API data feeds. All sources are OFF by default to conserve API quota."
-        icon={<GaugeIcon className="w-5 h-5" />}
-      >
-        <DataSourceToggles />
-      </SettingsSection>
+      {import.meta.env.DEV && (
+        <SettingsSection
+          title="Data Sources"
+          description="Enable or disable external API data feeds. This admin section is only available in development builds."
+          icon={<GaugeIcon className="w-5 h-5" />}
+        >
+          <DataSourceToggles />
+        </SettingsSection>
+      )}
+      {!import.meta.env.DEV && (
+        <SettingsSection
+          title="Data Sources"
+          description="Administrative source toggles are disabled in production mobile/web builds."
+          icon={<GaugeIcon className="w-5 h-5" />}
+        />
+      )}
 
       {/* API & Connection Section */}
       <SettingsSection

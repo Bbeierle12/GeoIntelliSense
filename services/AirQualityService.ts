@@ -1,6 +1,4 @@
-const INGESTION_URL = import.meta.env.VITE_INGESTION_URL
-  ? `${import.meta.env.VITE_INGESTION_URL}/api`
-  : 'http://localhost:3001/api';
+import { ingestionApiUrl } from '../config/api';
 
 export interface AQIData {
     aqi: number;
@@ -40,7 +38,7 @@ export class AirQualityService {
             return this.cachedReadings;
         }
 
-        const response = await fetch(`${INGESTION_URL}/aqi-snapshot`);
+        const response = await fetch(`${ingestionApiUrl}/aqi-snapshot`);
         if (!response.ok) throw new Error('AQI snapshot request failed');
 
         const data = await response.json();

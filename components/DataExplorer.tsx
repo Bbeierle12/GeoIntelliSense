@@ -5,8 +5,7 @@ import {
 } from 'recharts';
 import { useLiveData } from '../hooks/useLiveData';
 import { getDeepAnalysisResponse } from '../services/aiService';
-
-const GATEWAY = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
+import { gatewayBaseUrl } from '../config/api';
 
 // ── Source definitions ──────────────────────────────
 
@@ -94,7 +93,7 @@ const DataExplorer: React.FC = () => {
   // ── CSV download ───────────────────────────────────
 
   const downloadCsv = useCallback(() => {
-    const url = `${GATEWAY}/api/analysis/explore/csv?sources=${queryStr}&days=${days}&bucket=${encodeURIComponent(bucket)}`;
+    const url = `${gatewayBaseUrl}/api/analysis/explore/csv?sources=${queryStr}&days=${days}&bucket=${encodeURIComponent(bucket)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = `geointellisense_${days}d.csv`;

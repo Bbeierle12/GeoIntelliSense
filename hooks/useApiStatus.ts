@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
+import { gatewayApiUrl, ingestionBaseUrl } from '../config/api';
 
 interface ApiStatus {
     isAvailable: boolean;
     isLoading: boolean;
     error: string | null;
 }
-
-const RUST_URL = import.meta.env.VITE_INGESTION_URL || 'http://localhost:3001';
-const PYTHON_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080';
 
 export const useApiStatus = (): ApiStatus => {
     const [isAvailable, setIsAvailable] = useState(false);
@@ -18,8 +16,8 @@ export const useApiStatus = (): ApiStatus => {
         const checkApiStatus = async () => {
             try {
                 const [rustRes, pythonRes] = await Promise.all([
-                    fetch(`${RUST_URL}/health`).catch(() => null),
-                    fetch(`${PYTHON_URL}/api/health`).catch(() => null),
+                    fetch(`${ingestionBaseUrl}/health`).catch(() => null),
+                    fetch(`${gatewayApiUrl}/health`).catch(() => null),
                 ]);
 
                 const rustOk = rustRes?.ok ?? false;
