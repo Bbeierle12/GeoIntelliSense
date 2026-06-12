@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 EXPLORE_TTL = 300  # 5 min
 
+# Buckets we allow for time_bucket() — an arbitrary interval string like
+# "1 second" over a year would generate tens of millions of GROUP BY rows.
+ALLOWED_BUCKETS = ("1 hour", "6 hours", "1 day")
+
 # Available data sources and their DB queries
 SOURCES_META = {
     "aqi": {"label": "Air Quality (AQI)", "unit": "AQI", "color": "#ef4444"},
@@ -44,6 +48,9 @@ async def explore_data(
     source_list = [s.strip() for s in sources.split(",") if s.strip() in SOURCES_META]
     if not source_list:
         return JSONResponse(status_code=400, content={"error": "No valid sources", "available": list(SOURCES_META.keys())})
+
+    if bucket not in ALLOWED_BUCKETS:
+        return JSONResponse(status_code=400, content={"error": "Invalid bucket", "allowed": list(ALLOWED_BUCKETS)})
 
     cache_key = {"src": sources, "days": days, "bucket": bucket}
     cached, hit = await get_cached("explore", cache_key)
@@ -99,6 +106,9 @@ async def explore_csv(
     source_list = [s.strip() for s in sources.split(",") if s.strip() in SOURCES_META]
     if not source_list:
         return JSONResponse(status_code=400, content={"error": "No valid sources"})
+
+    if bucket not in ALLOWED_BUCKETS:
+        return JSONResponse(status_code=400, content={"error": "Invalid bucket", "allowed": list(ALLOWED_BUCKETS)})
 
     pool = await get_pool()
     start_date = date.today() - timedelta(days=days)
