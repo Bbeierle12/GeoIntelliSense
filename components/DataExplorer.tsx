@@ -387,10 +387,11 @@ Reference the actual data points — do not use generic knowledge. If PM2.5 spik
       {claudeResult && (
         <div className="bg-brand-bg-light rounded-lg p-5 space-y-3">
           <h3 className="text-base font-semibold text-slate-200">Claude Analysis</h3>
-          <div
-            className="prose prose-invert prose-sm max-w-none text-slate-300 whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{ __html: claudeResult.replace(/\n/g, '<br />') }}
-          />
+          {/* Render as plain text — AI output must never be injected as HTML.
+              whitespace-pre-wrap preserves the line breaks the old <br /> substitution provided. */}
+          <div className="prose prose-invert prose-sm max-w-none text-slate-300 whitespace-pre-wrap">
+            {claudeResult}
+          </div>
         </div>
       )}
 
