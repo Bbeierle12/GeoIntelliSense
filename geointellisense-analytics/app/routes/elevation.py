@@ -3,10 +3,11 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Query, Path
+from fastapi import APIRouter, Query, Path, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.cache import get_redis_binary, cache_headers
+from app.middleware import check_admin_auth
 from app.clients.dem import (
     elevation_at_point,
     elevation_profile,
@@ -231,9 +232,14 @@ async def list_tiles():
 
 @router.post("/api/elevation/download")
 async def start_download(
+    request: Request,
     tile_id: str | None = Query(None, description="Specific tile ID, or omit for all"),
 ):
     """Download DEM tile(s) from USGS 3DEP."""
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _download_task, _download_status
 
     if _download_task and not _download_task.done():
@@ -246,12 +252,17 @@ async def start_download(
 
 @router.post("/api/elevation/tiles/add")
 async def add_dem_tile(
+    request: Request,
     tile_id: str = Query(..., description="Tile ID e.g. n41w112 (north_lat + west_lon)"),
     name: str = Query("Custom tile", description="Human-readable name"),
     north: float = Query(...), south: float = Query(...),
     east: float = Query(...), west: float = Query(...),
 ):
     """Register a new USGS 3DEP tile for any CONUS location, then download it."""
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     if tile_id in TILES:
         return {"message": f"Tile {tile_id} already registered", "tile": TILES[tile_id]}
 

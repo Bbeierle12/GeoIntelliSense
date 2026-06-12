@@ -23,6 +23,7 @@ RATE_LIMITS = {
     "ai_low_latency": {"requests": 30, "window": 60}, # 30 req/min for haiku
     "ai_search": {"requests": 15, "window": 60},      # 15 req/min for search
     "ai_maps": {"requests": 15, "window": 60},        # 15 req/min for maps
+    "ai_forecast": {"requests": 5, "window": 60},     # 5 req/min for predictive/weather forecasts (expensive)
     "data_default": {"requests": 60, "window": 60},   # 60 req/min for data endpoints
 }
 
@@ -76,6 +77,20 @@ async def check_rate_limit(request: Request, tier: str = "data_default") -> JSON
     except Exception as e:
         logger.warning("Rate limit check failed (allowing request): %s", e)
 
+    return None
+
+
+def check_admin_auth(request: Request) -> JSONResponse | None:
+    """Validate admin token for write/operator endpoints (backfills, training, downloads).
+
+    Deny-by-default: if no ADMIN_TOKEN is configured, these endpoints are disabled.
+    Mirrors the admin router's behavior so all operator actions share one policy.
+    """
+    if not settings.admin_token:
+        return JSONResponse(status_code=403, content={"error": "Admin token not configured"})
+    token = request.headers.get("x-admin-token", "")
+    if token != settings.admin_token:
+        return JSONResponse(status_code=401, content={"error": "Invalid admin token"})
     return None
 
 

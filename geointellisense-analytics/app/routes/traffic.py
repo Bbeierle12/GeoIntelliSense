@@ -3,12 +3,13 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.clients.caltrans import fetch_county_traffic, KEY_ROUTES, TrafficStation
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -106,7 +107,11 @@ async def traffic_historical(
 # ── Backfill ─────────────────────────────────────────
 
 @router.post("/api/traffic/backfill")
-async def start_backfill():
+async def start_backfill(request: Request):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():
