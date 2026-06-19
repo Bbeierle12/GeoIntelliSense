@@ -3,12 +3,13 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.clients.calenviroscreen import download_and_parse, gdf_to_records, SJV_COUNTIES
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -121,8 +122,13 @@ async def tract_detail(tract_id: str = Path(..., description="Census tract GEOID
 
 @router.post("/api/enviroscreen/backfill")
 async def start_backfill(
+    request: Request,
     counties: str | None = Query(None, description="Comma-separated county names (default: SJV counties). Use 'all' for all California."),
 ):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():

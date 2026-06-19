@@ -4,13 +4,14 @@ import traceback
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.clients.noaa_cdo import NoaaCdoClient, DEFAULT_STATION, SJV_STATIONS, WeatherObs
 from app.config import settings
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -81,10 +82,15 @@ async def weather_historical(
 
 @router.post("/api/weather/backfill")
 async def start_weather_backfill(
+    request: Request,
     start_year: int = Query(2021, description="Start year"),
     end_year: int = Query(2025, description="End year"),
     station: str = Query(DEFAULT_STATION),
 ):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if not settings.noaa_cdo_token:

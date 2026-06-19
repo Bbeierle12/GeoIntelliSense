@@ -3,12 +3,13 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.clients.calgem import fetch_wells_for_county, SJV_COUNTIES, CalgemWell
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -131,8 +132,13 @@ async def wells_nearby(
 
 @router.post("/api/calgem/backfill")
 async def start_backfill(
+    request: Request,
     county: str = Query("Kern", description="County name"),
 ):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():

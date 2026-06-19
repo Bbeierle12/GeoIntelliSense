@@ -3,11 +3,12 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.database import get_pool
+from app.middleware import check_admin_auth
 from app.ml.aqi_model import predict_aqi, train_model, get_model_status, get_model
 
 router = APIRouter()
@@ -155,12 +156,18 @@ async def model_status():
 
 @router.post("/api/predict/train")
 async def start_training(
+    request: Request,
     min_days: int = Query(90, ge=7, le=730, description="Minimum days of history to train on"),
 ):
     """Train or retrain the AQI prediction model.
 
-    Runs as a background task — poll /api/predict/train/status for progress.
+    Requires X-Admin-Token. Runs as a background task — poll
+    /api/predict/train/status for progress.
     """
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _train_task, _train_status
 
     if _train_task and not _train_task.done():

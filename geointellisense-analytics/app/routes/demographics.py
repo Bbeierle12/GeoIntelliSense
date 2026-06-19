@@ -3,13 +3,14 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
 from app.clients.census import fetch_tract_demographics, fetch_sjv_demographics, TractDemographics, SJV_COUNTIES, KERN_STATE, KERN_COUNTY
 from app.config import settings
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -148,10 +149,15 @@ async def demographics_summary(
 
 @router.post("/api/demographics/backfill")
 async def start_backfill(
+    request: Request,
     state: str = Query(KERN_STATE, description="State FIPS (e.g. 06 for California)"),
     county: str | None = Query(None, description="County FIPS. Omit for all SJV counties."),
     year: int = Query(2022, description="ACS 5-year dataset year"),
 ):
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():

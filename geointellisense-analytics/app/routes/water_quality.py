@@ -3,7 +3,7 @@ import logging
 import traceback
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.cache import get_cached, set_cached, cache_headers
@@ -18,6 +18,7 @@ from app.clients.wqp import (
     KERN_COUNTY_FIPS,
 )
 from app.database import get_pool
+from app.middleware import check_admin_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -312,6 +313,7 @@ async def oil_well_proximity(
 
 @router.post("/api/water-quality/backfill")
 async def start_backfill(
+    request: Request,
     county_fips: str = Query(KERN_COUNTY_FIPS, description="County FIPS code (e.g. US:06:029 for Kern)"),
     start_date: str = Query("01-01-2015", description="Start date (MM-DD-YYYY)"),
 ):
@@ -319,6 +321,10 @@ async def start_backfill(
 
     Source toggle: wqp (must be enabled via /api/admin/sources/wqp/enable)
     """
+    auth_err = check_admin_auth(request)
+    if auth_err:
+        return auth_err
+
     global _backfill_task, _backfill_status
 
     if _backfill_task and not _backfill_task.done():
