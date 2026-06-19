@@ -25,6 +25,7 @@ SOURCE_INTERVALS = {
     "water": 900,           # USGS water polling every 15 min
     "enviroscreen": 604800, # Static dataset, 7-day cache
     "inversion": 1800,      # Inversion polling every 30 min
+    "soil": 86400,           # Soil data rarely changes — 24h cache
 }
 
 
@@ -66,6 +67,7 @@ async def build_live_context() -> dict[str, Any]:
     context["enviroscreen"] = await _get_enviroscreen_context(pool)
     context["inversion"] = _get_inversion_context()
     context["prediction"] = await _get_prediction_context(pool)
+    context["soil"] = await _get_soil_context()
 
     return context
 
@@ -162,6 +164,21 @@ async def build_context_text() -> str:
             lines.append("  TULE FOG CONDITIONS LIKELY — near-zero visibility expected in valley")
         if strength in ("moderate", "strong"):
             lines.append("  *** Pollutant trapping active — AQI readings should be interpreted with this in mind ***")
+        lines.append("")
+
+    # Soil
+    soil = ctx.get("soil", {})
+    if soil.get("type"):
+        lines.append("── Soil Data (Home Location) ──")
+        lines.append(f"  Type: {soil['type']}")
+        if soil.get("drainage"):
+            lines.append(f"  Drainage: {soil['drainage']}")
+        if soil.get("ph") is not None:
+            lines.append(f"  pH: {soil['ph']}")
+        if soil.get("sandPct") is not None:
+            lines.append(f"  Composition: {soil['sandPct']}% sand, {soil.get('siltPct', '?')}% silt, {soil.get('clayPct', '?')}% clay")
+        if soil.get("organicMatterPct") is not None:
+            lines.append(f"  Organic matter: {soil['organicMatterPct']}%")
         lines.append("")
 
     # ML Prediction
@@ -485,6 +502,57 @@ def _get_inversion_context() -> dict[str, Any]:
         return {"status": status, "freshness": _freshness(last_updated, "inversion")}
 
     return {"status": None, "freshness": _freshness(None, "inversion")}
+
+
+async def _get_soil_context() -> dict[str, Any]:
+    """Get soil data for the home location from the soil report endpoint (cached in Redis).
+
+    Uses the existing /api/soil/report endpoint which queries USDA SDA via PostGIS.
+    Cached separately with a 24-hour TTL since soil data rarely changes.
+    """
+    try:
+        from app.cache import get_cached, set_cached
+
+        cache_key = "soil-context-home"
+        cached, hit = await get_cached("soil-context", cache_key)
+        if cached is not None:
+            return cached
+
+        import httpx
+        from app.config import settings
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"http://localhost:{settings.port}/api/soil/report",
+                params={"lat": 35.3733, "lng": -119.0187},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # Extract a simplified summary for the context prompt
+                mgmt = data.get("yardManagement", {})
+                dominant = data.get("components", [{}])[0] if data.get("components") else {}
+                top_hz = dominant.get("horizons", [{}])[0] if dominant.get("horizons") else {}
+                texture = mgmt.get("soilTexture", {}) if mgmt else {}
+
+                summary = {
+                    "type": texture.get("textureClass") or dominant.get("compname"),
+                    "mapUnit": data.get("mapUnit", {}).get("muname"),
+                    "drainage": dominant.get("drainagecl"),
+                    "ph": top_hz.get("ph"),
+                    "sandPct": top_hz.get("sandPct"),
+                    "siltPct": top_hz.get("siltPct"),
+                    "clayPct": top_hz.get("clayPct"),
+                    "organicMatterPct": top_hz.get("organicMatterPct"),
+                    "drainageRating": mgmt.get("drainage", {}).get("rating") if mgmt else None,
+                    "amendments": mgmt.get("amendments", []) if mgmt else [],
+                }
+                await set_cached("soil-context", cache_key, summary, 86400)  # 24h cache
+                return summary
+
+    except Exception as e:
+        logger.warning("Soil context fetch failed: %s", e)
+
+    return {}
 
 
 async def _get_prediction_context(pool) -> dict[str, Any]:

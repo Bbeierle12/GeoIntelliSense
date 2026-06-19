@@ -40,6 +40,7 @@ SOURCES = {
     "landsat": "Landsat imagery via Planetary Computer STAC",
     "sentinel": "Sentinel-2 satellite tiles via EOX",
     "dem": "USGS 3DEP elevation data",
+    "ssurgo": "USDA SSURGO soil data via Soil Data Access",
 }
 
 

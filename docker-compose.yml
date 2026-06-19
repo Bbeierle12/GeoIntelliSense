@@ -80,6 +80,9 @@ services:
       context: ./geointellisense-analytics
       dockerfile: Dockerfile
     container_name: geointellisense-analytics
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}

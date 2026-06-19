@@ -20,6 +20,13 @@ SJV_SYSTEM = (
     "Provide data-driven, actionable insights. Use markdown formatting."
 )
 
+YARD_SYSTEM = (
+    "You are also a yard and garden management advisor. You have access to the "
+    "user's yard measurements, local soil data, elevation, and weather conditions. "
+    "Reference actual yard dimensions, soil type, climate, and elevation when "
+    "advising on yard care. Provide actionable, seasonal advice."
+)
+
 # ── Per-session chat history ─────────────────────────
 # Maps session_id -> list of messages. Sessions expire after MAX_SESSIONS.
 
@@ -80,9 +87,13 @@ async def get_system_with_live_context(base_system: str) -> str:
 
     Caches for 60s to avoid hammering DB on every chat message.
     Falls back to fire-only context if the full context builder fails.
+    Always appends yard advisor capability.
     """
     import time
     global _cached_context, _cached_context_ts
+
+    # Always include yard advisor persona
+    base_system = f"{base_system}\n\n{YARD_SYSTEM}"
 
     now = time.time()
     if _cached_context and (now - _cached_context_ts) < 60:
@@ -211,6 +222,59 @@ TOOLS = [
             "required": ["lat", "lng"],
         },
     },
+    {
+        "name": "get_yard_features",
+        "description": "Get all saved yard measurements and features",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_soil_data",
+        "description": "Get soil composition, drainage, and pH for a location",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "lat": {
+                    "type": "number",
+                    "description": "Latitude of the location",
+                },
+                "lng": {
+                    "type": "number",
+                    "description": "Longitude of the location",
+                },
+            },
+            "required": ["lat", "lng"],
+        },
+    },
+    {
+        "name": "get_elevation_profile",
+        "description": "Get elevation along a line across the yard",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_lat": {
+                    "type": "number",
+                    "description": "Starting latitude",
+                },
+                "from_lng": {
+                    "type": "number",
+                    "description": "Starting longitude",
+                },
+                "to_lat": {
+                    "type": "number",
+                    "description": "Ending latitude",
+                },
+                "to_lng": {
+                    "type": "number",
+                    "description": "Ending longitude",
+                },
+            },
+            "required": ["from_lat", "from_lng", "to_lat", "to_lng"],
+        },
+    },
 ]
 
 
@@ -259,6 +323,22 @@ async def execute_tool(tool_name: str, tool_input: dict) -> str:
                 lat = tool_input["lat"]
                 lng = tool_input["lng"]
                 resp = await client.get(f"{base}/api/forecast", params={"lat": lat, "lng": lng})
+
+            elif tool_name == "get_yard_features":
+                resp = await client.get(f"{base}/api/yard/features")
+
+            elif tool_name == "get_soil_data":
+                lat = tool_input["lat"]
+                lng = tool_input["lng"]
+                resp = await client.get(f"{base}/api/soil/report", params={"lat": lat, "lng": lng})
+
+            elif tool_name == "get_elevation_profile":
+                from_coords = f"{tool_input['from_lat']},{tool_input['from_lng']}"
+                to_coords = f"{tool_input['to_lat']},{tool_input['to_lng']}"
+                resp = await client.get(
+                    f"{base}/api/elevation/profile",
+                    params={"from": from_coords, "to": to_coords, "points": 50},
+                )
 
             else:
                 return json.dumps({"error": f"Unknown tool: {tool_name}"})
