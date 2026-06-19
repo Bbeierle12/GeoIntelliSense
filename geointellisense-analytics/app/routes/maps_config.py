@@ -1,14 +1,14 @@
-import os
-
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+
+from app.config import settings
 
 router = APIRouter()
 
 
 @router.get("/api/maps-config")
 async def maps_config():
-    api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    api_key = settings.google_maps_api_key
     if not api_key:
         return JSONResponse(
             status_code=500,
