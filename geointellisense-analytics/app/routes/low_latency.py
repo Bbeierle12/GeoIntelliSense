@@ -28,7 +28,7 @@ async def low_latency(req: LowLatencyRequest, request: Request):
 
     try:
         system = await get_system_with_live_context(SJV_SYSTEM)
-        resp = get_client().messages.create(
+        resp = await get_client().messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system,

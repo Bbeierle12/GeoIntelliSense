@@ -1,0 +1,22 @@
+env_file = ".env"
+
+[keys.google-maps]
+env_var = "GOOGLE_MAPS_API_KEY"
+
+[keys.anthropic]
+env_var = "ANTHROPIC_API_KEY"
+
+[keys.purpleair]
+env_var = "PURPLEAIR_API_KEY"
+
+[keys.airnow]
+env_var = "AIRNOW_API_KEY"
+
+[keys.noaa-cdo]
+env_var = "NOAA_CDO_TOKEN"
+
+[keys.nasa-firms]
+env_var = "NASA_FIRMS_KEY"
+
+[keys.admin-geointellisense]
+env_var = "ADMIN_TOKEN"

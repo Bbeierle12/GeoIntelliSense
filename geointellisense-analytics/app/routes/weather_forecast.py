@@ -81,7 +81,7 @@ Present the forecast in a clear, well-structured Markdown format:
 **IMPORTANT:** Do NOT include any analysis or forecast related to air quality (AQI, PM2.5). Focus exclusively on meteorological conditions.
 """
 
-        resp = get_client().messages.create(
+        resp = await get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             system=FORECAST_SYSTEM,

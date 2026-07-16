@@ -30,7 +30,8 @@ async def deep_analysis(req: DeepAnalysisRequest, request: Request):
         system = await get_system_with_live_context(SJV_SYSTEM)
         client = get_client()
 
-        resp = client.messages.create(
+        messages = [{"role": "user", "content": req.prompt}]
+        resp = await client.messages.create(
             model="claude-opus-4-6",
             max_tokens=40000,
             temperature=1,  # required for extended thinking
@@ -39,7 +40,7 @@ async def deep_analysis(req: DeepAnalysisRequest, request: Request):
                 "type": "enabled",
                 "budget_tokens": 32768,
             },
-            messages=[{"role": "user", "content": req.prompt}],
+            messages=messages,
             tools=TOOLS,
         )
 
@@ -48,7 +49,6 @@ async def deep_analysis(req: DeepAnalysisRequest, request: Request):
         while resp.stop_reason == "tool_use" and rounds < 3:
             rounds += 1
             tool_results = []
-            assistant_content = resp.content
             for block in resp.content:
                 if block.type == "tool_use":
                     result = await execute_tool(block.name, block.input)
@@ -58,7 +58,14 @@ async def deep_analysis(req: DeepAnalysisRequest, request: Request):
                         "content": result,
                     })
 
-            resp = client.messages.create(
+            # Accumulate the full history — resp.content must be passed back
+            # verbatim (thinking blocks included) per the extended-thinking
+            # API contract, and prior rounds' tool context must be retained.
+            messages.extend([
+                {"role": "assistant", "content": resp.content},
+                {"role": "user", "content": tool_results},
+            ])
+            resp = await client.messages.create(
                 model="claude-opus-4-6",
                 max_tokens=40000,
                 temperature=1,
@@ -67,11 +74,7 @@ async def deep_analysis(req: DeepAnalysisRequest, request: Request):
                     "type": "enabled",
                     "budget_tokens": 32768,
                 },
-                messages=[
-                    {"role": "user", "content": req.prompt},
-                    {"role": "assistant", "content": assistant_content},
-                    {"role": "user", "content": tool_results},
-                ],
+                messages=messages,
                 tools=TOOLS,
             )
 

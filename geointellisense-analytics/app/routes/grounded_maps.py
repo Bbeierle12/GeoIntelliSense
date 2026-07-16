@@ -43,11 +43,12 @@ async def grounded_maps(req: GroundedMapsRequest, request: Request):
         system = await get_system_with_live_context(f"{SJV_SYSTEM}\n\n{location_context}")
         client = get_client()
 
-        resp = client.messages.create(
+        messages = [{"role": "user", "content": req.prompt}]
+        resp = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             system=system,
-            messages=[{"role": "user", "content": req.prompt}],
+            messages=messages,
             tools=TOOLS,
         )
 
@@ -56,7 +57,6 @@ async def grounded_maps(req: GroundedMapsRequest, request: Request):
         while resp.stop_reason == "tool_use" and rounds < 5:
             rounds += 1
             tool_results = []
-            assistant_content = resp.content
             for block in resp.content:
                 if block.type == "tool_use":
                     result = await execute_tool(block.name, block.input)
@@ -66,15 +66,17 @@ async def grounded_maps(req: GroundedMapsRequest, request: Request):
                         "content": result,
                     })
 
-            resp = client.messages.create(
+            # Accumulate the full history so later rounds keep the context of
+            # what tools were already called and what they returned.
+            messages.extend([
+                {"role": "assistant", "content": resp.content},
+                {"role": "user", "content": tool_results},
+            ])
+            resp = await client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=4096,
                 system=system,
-                messages=[
-                    {"role": "user", "content": req.prompt},
-                    {"role": "assistant", "content": assistant_content},
-                    {"role": "user", "content": tool_results},
-                ],
+                messages=messages,
                 tools=TOOLS,
             )
 

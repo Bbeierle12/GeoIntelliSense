@@ -97,7 +97,7 @@ Present the forecast in a clear, well-structured Markdown format with distinct s
 """
 
         system = await get_system_with_live_context(PREDICTIVE_SYSTEM)
-        resp = get_client().messages.create(
+        resp = await get_client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             system=system,

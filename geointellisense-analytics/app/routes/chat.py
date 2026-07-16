@@ -40,7 +40,7 @@ async def chat(req: ChatRequest, request: Request):
         client = get_client()
 
         # Initial request with tools
-        resp = client.messages.create(
+        resp = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
             system=system,
@@ -67,7 +67,7 @@ async def chat(req: ChatRequest, request: Request):
                 {"role": "assistant", "content": resp.content},
                 {"role": "user", "content": tool_results},
             ]
-            resp = client.messages.create(
+            resp = await client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=2048,
                 system=system,

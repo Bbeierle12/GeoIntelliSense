@@ -78,8 +78,16 @@ _cached_context: str = ""
 _cached_context_ts: float = 0
 
 
-def get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+# Module-level singleton — reuses one httpx connection pool across all LLM
+# calls instead of paying a fresh TLS handshake per request.
+_client: anthropic.AsyncAnthropic | None = None
+
+
+def get_client() -> anthropic.AsyncAnthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _client
 
 
 async def get_system_with_live_context(base_system: str) -> str:
