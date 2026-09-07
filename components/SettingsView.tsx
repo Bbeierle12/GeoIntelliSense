@@ -25,7 +25,15 @@ import { MapIcon } from './icons/MapIcon';
 import { KeyIcon } from './icons/KeyIcon';
 import { LightbulbIcon } from './icons/LightbulbIcon';
 import { SettingsIcon } from './icons/SettingsIcon';
-import { gatewayBaseUrl, ingestionBaseUrl } from '../config/api';
+import {
+  gatewayBaseUrl,
+  ingestionBaseUrl,
+  isBackendConfigured,
+  isNativeApp,
+  readStoredServerConfig,
+  saveServerConfig,
+  clearServerConfig,
+} from '../config/api';
 
 // Reusable components
 interface SettingsSectionProps {
@@ -358,10 +366,15 @@ const DataSourceToggles: React.FC = () => {
 
 // API Status Component
 const ApiStatusIndicator: React.FC = () => {
-  const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [status, setStatus] = useState<'checking' | 'online' | 'offline' | 'unconfigured'>('checking');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
   const checkStatus = async () => {
+    if (!isBackendConfigured) {
+      setStatus('unconfigured');
+      setLastChecked(new Date());
+      return;
+    }
     setStatus('checking');
     try {
       const response = await fetch(`${ingestionBaseUrl}/health`, {
@@ -383,12 +396,14 @@ const ApiStatusIndicator: React.FC = () => {
     checking: 'bg-yellow-500',
     online: 'bg-green-500',
     offline: 'bg-red-500',
+    unconfigured: 'bg-slate-500',
   };
 
   const statusText = {
     checking: 'Checking...',
     online: 'Connected',
     offline: 'Disconnected',
+    unconfigured: 'No server configured',
   };
 
   return (
@@ -415,6 +430,115 @@ const ApiStatusIndicator: React.FC = () => {
         Refresh
       </button>
     </div>
+  );
+};
+
+// Server address editor for the native (Capacitor) app. On the web the
+// addresses are fixed at build time, so this section is not rendered there.
+const ServerConnectionSettings: React.FC = () => {
+  const stored = readStoredServerConfig();
+  const [gatewayUrl, setGatewayUrl] = useState(stored?.gatewayUrl ?? (isBackendConfigured ? gatewayBaseUrl : ''));
+  const [ingestionUrl, setIngestionUrl] = useState(stored?.ingestionUrl ?? (isBackendConfigured ? ingestionBaseUrl : ''));
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = () => window.location.reload();
+
+  const handleSave = (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      saveServerConfig({ gatewayUrl, ingestionUrl });
+      setError(null);
+      reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid server address');
+    }
+  };
+
+  const handleReset = () => {
+    clearServerConfig();
+    reload();
+  };
+
+  const inputClass = `
+    w-full px-3 py-2 text-sm bg-brand-bg-dark border border-border-color rounded-md
+    text-text-primary placeholder:text-text-muted
+    focus:outline-none focus:ring-2 focus:ring-brand-primary
+  `;
+
+  return (
+    <form onSubmit={handleSave} className="space-y-4">
+      {!isBackendConfigured && (
+        <p className="text-sm text-yellow-400" role="alert">
+          No server configured. Enter the address of your GeoIntelliSense server below to load live data.
+        </p>
+      )}
+      <div className="space-y-1">
+        <label htmlFor="server-gateway-url" className="block text-sm font-medium text-text-primary">
+          Gateway URL
+        </label>
+        <p className="text-xs text-text-muted">Analytics / maps API (the service published on port 8080 by docker compose).</p>
+        <input
+          id="server-gateway-url"
+          type="url"
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="https://api.example.com"
+          value={gatewayUrl}
+          onChange={(e) => setGatewayUrl(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="space-y-1">
+        <label htmlFor="server-ingestion-url" className="block text-sm font-medium text-text-primary">
+          Ingestion URL
+        </label>
+        <p className="text-xs text-text-muted">Real-time sensor feed (the service published on port 3001 by docker compose).</p>
+        <input
+          id="server-ingestion-url"
+          type="url"
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="https://ingestion.example.com"
+          value={ingestionUrl}
+          onChange={(e) => setIngestionUrl(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <p className="text-xs text-text-muted">
+        Public servers must use HTTPS. Plain HTTP is accepted only for private network addresses
+        (for example 192.168.x.x) and only works in debug builds of the app.
+      </p>
+      {error && (
+        <p className="text-sm text-red-500" role="alert">{error}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          className="
+            px-4 py-2 text-sm bg-brand-primary text-white rounded-md
+            hover:bg-sky-600 transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-brand-bg-light
+          "
+        >
+          Save & reconnect
+        </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          className="
+            px-4 py-2 text-sm bg-brand-bg-dark border border-border-color rounded-md
+            hover:bg-brand-bg-lighter transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+          "
+        >
+          Reset to default
+        </button>
+      </div>
+    </form>
   );
 };
 
@@ -909,6 +1033,15 @@ const SettingsView: React.FC = () => {
         >
           <ApiStatusIndicator />
         </SettingRow>
+        {isNativeApp() && (
+          <div className="py-3">
+            <h3 className="text-sm font-medium text-text-primary">Server Connection</h3>
+            <p className="text-xs text-text-muted mt-0.5 mb-3">
+              Where this app fetches its data from. Changes take effect after the app reloads.
+            </p>
+            <ServerConnectionSettings />
+          </div>
+        )}
       </SettingsSection>
 
       {/* Data Management Section */}

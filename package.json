@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "cap:sync": "cap sync android",
     "cap:open:android": "cap open android",
+    "apk:debug": "npm run build:mobile && cd android && ./gradlew assembleDebug",
+    "apk:release": "npm run build:mobile && cd android && ./gradlew assembleRelease",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",

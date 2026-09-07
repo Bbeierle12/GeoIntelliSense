@@ -3,7 +3,7 @@
 ## 1) Prerequisites
 - Node.js + npm
 - Android Studio (latest stable)
-- Android SDK Platform 35 (verify latest Play requirement before submission)
+- Android SDK Platform 36 + build-tools 36.0.0 (Capacitor 8 requires compileSdk 36)
 - Java 17+
 
 ## 2) Configure production env vars
@@ -43,8 +43,8 @@ Play App Signing should remain enabled in Play Console.
 - Use release signing config
 
 ## 7) API levels and versioning
-- `compileSdk` / `targetSdk`: 35 (Android 15)
-- `minSdk`: 23
+- `compileSdk` / `targetSdk`: 36 (Android 16)
+- `minSdk`: 24 (required by Capacitor 8)
 - `versionCode`: 1
 - `versionName`: 1.0.0
 - Re-check current Play required target API level at submission time.

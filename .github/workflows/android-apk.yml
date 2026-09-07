@@ -1,0 +1,152 @@
+name: Android APK
+
+# Builds an installable Android APK of the Capacitor app.
+#
+# - Every push to main and every pull request produces a debug APK
+#   (signed with the standard Android debug key, fine for sideloading).
+# - "Run workflow" lets you bake backend addresses into the build.
+# - If the signing secrets below are configured, a release APK is built too.
+#
+# Optional repository variables (Settings > Secrets and variables > Actions > Variables):
+#   VITE_GATEWAY_URL     e.g. https://api.example.com
+#   VITE_INGESTION_URL   e.g. https://ingestion.example.com
+# When these are empty the app starts without a server and asks for one in
+# Settings > API & Connection.
+#
+# Optional secrets for a signed release APK:
+#   ANDROID_KEYSTORE_BASE64   base64 of the .jks/.keystore file
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      gateway_url:
+        description: 'VITE_GATEWAY_URL baked into the build (leave blank to configure in-app)'
+        required: false
+        default: ''
+      ingestion_url:
+        description: 'VITE_INGESTION_URL baked into the build (leave blank to configure in-app)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VITE_GATEWAY_URL: ${{ github.event.inputs.gateway_url || vars.VITE_GATEWAY_URL || '' }}
+      VITE_INGESTION_URL: ${{ github.event.inputs.ingestion_url || vars.VITE_INGESTION_URL || '' }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run tests/apiConfig.test.ts tests/serverConfig.test.ts tests/security.test.tsx
+
+      - name: Build web assets and sync Capacitor
+        run: npm run build:mobile
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoIntelliSense-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Check for release signing secrets
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "No ANDROID_KEYSTORE_BASE64 secret; skipping signed release APK."
+          fi
+
+      - name: Write release keystore
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/release.keystore
+          cat > android/keystore.properties <<PROPS
+          storeFile=../release.keystore
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPS
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.enabled == 'true'
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload release APK
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoIntelliSense-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach APKs to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release.apk
+          fail_on_unmatched_files: false
+
+      - name: Remove signing material
+        if: always() && steps.signing.outputs.enabled == 'true'
+        run: rm -f android/release.keystore android/keystore.properties

@@ -67,8 +67,9 @@ API keys are stored securely in `.env.local` and only accessed by the backend se
 
 ## Android / Google Play
 
-This repository now includes a Capacitor Android wrapper for Play Store publishing.
+This repository includes a Capacitor Android wrapper. A debug APK is built automatically by the **Android APK** GitHub Actions workflow on every push to `main` (download it from the workflow run's artifacts), or locally with `npm run apk:debug`.
 
-- Runbook: `docs/ANDROID_PLAY_STORE.md`
+- Build and sideload an APK (e.g. onto a Pixel): `docs/ANDROID_APK.md`
+- Play Store runbook: `docs/ANDROID_PLAY_STORE.md`
 - Data safety mapping: `docs/PLAY_STORE_DATA_SAFETY.md`
 - Privacy policy template: `PRIVACY_POLICY.md`
