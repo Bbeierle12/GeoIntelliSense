@@ -121,6 +121,9 @@ describe('server config (native override)', () => {
       expect(api.validateServerUrl('http://100.101.102.103:8080', 'Gateway URL')).toBe('http://100.101.102.103:8080');
       expect(api.validateServerUrl('http://100.64.0.1:3001', 'Ingestion URL')).toBe('http://100.64.0.1:3001');
       expect(api.validateServerUrl('http://100.127.255.254', 'Gateway URL')).toBe('http://100.127.255.254');
+      // Tailscale MagicDNS and bare machine names
+      expect(api.validateServerUrl('http://mybox.tail1234.ts.net:8080', 'Gateway URL')).toBe('http://mybox.tail1234.ts.net:8080');
+      expect(api.validateServerUrl('http://mybox:8080', 'Gateway URL')).toBe('http://mybox:8080');
     });
 
     it('rejects plain HTTP to public hosts', async () => {
@@ -130,6 +133,8 @@ describe('server config (native override)', () => {
       // Just outside the CGNAT range
       expect(() => api.validateServerUrl('http://100.63.255.255', 'Gateway URL')).toThrow(/must use HTTPS/);
       expect(() => api.validateServerUrl('http://100.128.0.1', 'Gateway URL')).toThrow(/must use HTTPS/);
+      expect(() => api.validateServerUrl('http://ts.net.example.com', 'Gateway URL')).toThrow(/must use HTTPS/);
+      expect(() => api.validateServerUrl('http://mybox.example.com', 'Gateway URL')).toThrow(/must use HTTPS/);
     });
   });
 });

@@ -99,8 +99,10 @@ immediately or by email within minutes):
 
 Install [Tailscale](https://tailscale.com/download) on the computer and the
 phone and sign both into the same account. `npm run phone:urls` then also
-prints a `100.x.y.z` address (the computer's Tailscale IP); enter those URLs
-in the app instead. The computer must stay on and running `docker compose`.
+prints the computer's MagicDNS name (`http://mybox.tailnet.ts.net:8080`) and
+its `100.x.y.z` Tailscale IP; enter either pair in the app instead of the
+Wi-Fi ones. The phone then reaches the backend from anywhere, including on
+cellular. The computer must stay on and running `docker compose`.
 
 For HTTPS on the tailnet (needed by a release build), enable HTTPS in the
 Tailscale admin console and publish both ports:
@@ -139,7 +141,8 @@ Rules for the address:
 - Public servers must use `https://`.
 - Plain `http://` is accepted only for private-network hosts such as
   `http://192.168.1.20:8080`, `http://10.0.0.5:3001`, `http://100.101.102.103:8080`
-  (Tailscale), or `http://mybox.local:8080`, and only in **debug** builds.
+  or `http://mybox.tailnet.ts.net:8080` (Tailscale), `http://mybox:8080`, or
+  `http://mybox.local:8080`, and only in **debug** builds.
   Release builds enforce HTTPS at the OS level.
 
 ### Talking to a laptop on the same Wi-Fi

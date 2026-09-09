@@ -8,6 +8,25 @@
 // Ports follow docker-compose.yml (override with GATEWAY_PORT / INGESTION_PORT).
 
 import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+const TAILSCALE_TIMEOUT_MS = 3000;
+
+// MagicDNS name of this machine, if the Tailscale CLI is installed and up.
+const tailscaleDnsName = async () => {
+  for (const bin of ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']) {
+    try {
+      const { stdout } = await execFileAsync(bin, ['status', '--json'], { timeout: TAILSCALE_TIMEOUT_MS });
+      const name = JSON.parse(stdout)?.Self?.DNSName;
+      if (typeof name === 'string' && name) return name.replace(/\.$/, '');
+    } catch {
+      // not installed, not running, or not on PATH
+    }
+  }
+  return null;
+};
 
 const GATEWAY_PORT = process.env.GATEWAY_PORT || '8080';
 const INGESTION_PORT = process.env.INGESTION_PORT || '3001';
@@ -51,7 +70,14 @@ if (candidates.length === 0) {
   process.exit(1);
 }
 
+const dnsName = await tailscaleDnsName();
+
 console.log('Enter these in the app (Settings > API & Connection > Server Connection):');
+if (dnsName) {
+  console.log('\n  via Tailscale MagicDNS, works off Wi-Fi (recommended)');
+  console.log(`    Gateway URL:   http://${dnsName}:${GATEWAY_PORT}`);
+  console.log(`    Ingestion URL: http://${dnsName}:${INGESTION_PORT}`);
+}
 for (const c of candidates) {
   const label = c.tailscale ? 'via Tailscale, works off Wi-Fi' : `on Wi-Fi/LAN (${c.name})`;
   console.log(`\n  ${label}`);
