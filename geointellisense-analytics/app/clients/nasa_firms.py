@@ -51,6 +51,8 @@ class FireDetection:
         d = {k: getattr(self, k) for k in self.__slots__}
         if self.acq_datetime:
             d["time"] = self.acq_datetime.isoformat() if hasattr(self.acq_datetime, "isoformat") else str(self.acq_datetime)
+            # Raw datetime in the dict breaks JSONResponse / json.dumps ("FIRMS request failed")
+            d["acq_datetime"] = d["time"]
         d["distanceKm"] = round(_haversine(self.latitude, self.longitude, ref_lat, ref_lng), 1)
         d["isUpwind"] = _is_upwind(self.latitude, self.longitude)
         return d

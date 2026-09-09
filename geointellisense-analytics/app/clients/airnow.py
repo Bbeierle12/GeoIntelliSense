@@ -168,7 +168,7 @@ def _normalize_observations(obs_list: list[dict], loc: dict) -> dict[str, Any] |
     first = obs_list[0]
     reporting_area = first.get("ReportingArea", loc["name"])
     state = first.get("StateCode", "CA")
-    timestamp = first.get("DateObserved", "").strip() + "T" + first.get("HourObserved", "12").zfill(2) + ":00:00"
+    timestamp = first.get("DateObserved", "").strip() + "T" + str(first.get("HourObserved", 12)).zfill(2) + ":00:00"
 
     return {
         "stationId": f"airnow-{loc['name'].lower()}",
