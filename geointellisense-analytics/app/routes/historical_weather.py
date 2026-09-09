@@ -1,4 +1,3 @@
-import math
 from datetime import date
 
 import polars as pl
@@ -55,14 +54,26 @@ async def historical_weather(
     if not rows:
         return []
 
-    df = pl.DataFrame({
-        "time": [r["time"] for r in rows],
-        "location_id": [str(r["location_id"]) for r in rows],
-        "location_name": [r["location_name"] for r in rows],
-        "temperature": [r["temperature"] for r in rows],
-        "humidity": [r["humidity"] for r in rows],
-        "wind_speed": [r["wind_speed"] for r in rows],
-    })
+    # A column that is entirely NULL is inferred as pl.Null, and .round() on a
+    # Null column raises InvalidOperationError. sensor_readings is currently fed
+    # only by PurpleAir, which reports humidity but neither temperature nor
+    # wind, so an all-null column is the normal case here, not an edge case.
+    # Pin the dtypes rather than letting polars infer them.
+    df = pl.DataFrame(
+        {
+            "time": [r["time"] for r in rows],
+            "location_id": [str(r["location_id"]) for r in rows],
+            "location_name": [r["location_name"] for r in rows],
+            "temperature": [r["temperature"] for r in rows],
+            "humidity": [r["humidity"] for r in rows],
+            "wind_speed": [r["wind_speed"] for r in rows],
+        },
+        schema_overrides={
+            "temperature": pl.Float64,
+            "humidity": pl.Float64,
+            "wind_speed": pl.Float64,
+        },
+    )
 
     aggregated = (
         df.with_columns(
@@ -71,9 +82,13 @@ async def historical_weather(
         )
         .group_by(["location_id", "location_name", "month", "year"])
         .agg(
-            pl.col("temperature").mean().round(0).cast(pl.Int32).alias("avgTemp"),
-            pl.col("humidity").mean().round(0).cast(pl.Int32).alias("avgHumidity"),
-            pl.col("wind_speed").mean().round(0).cast(pl.Int32).alias("avgWindSpeed"),
+            # Stay in Float64: a group with no readings for a column averages to
+            # null, which must survive to the client as null rather than being
+            # cast into a plausible-looking integer.
+            pl.col("temperature").mean().round(1).alias("avgTemp"),
+            pl.col("humidity").mean().round(1).alias("avgHumidity"),
+            pl.col("wind_speed").mean().round(1).alias("avgWindSpeed"),
+            pl.len().alias("sampleCount"),
         )
         .sort(["location_name", "year", "month"])
     )
@@ -81,12 +96,6 @@ async def historical_weather(
     records = []
     for row in aggregated.iter_rows(named=True):
         loc_id = row["location_id"]
-        avg_temp = row["avgTemp"]
-
-        # Derived fields matching HistoricalWeatherRecord shape
-        max_uv = round(max(2, min(11, (avg_temp - 40) / 5)))
-        avg_solar_rad = round(max(200, (avg_temp - 30) * 10))
-        avg_et0 = round(max(0.1, (avg_temp - 40) / 10), 1)
 
         records.append({
             "id": f"hist_weather_{loc_id}_{row['month']}_{row['year']}",
@@ -94,13 +103,19 @@ async def historical_weather(
             "locationName": row["location_name"],
             "month": row["month"],
             "year": row["year"],
-            "avgTemp": avg_temp,
-            "totalPrecipitation": 0.0,  # sensor_readings doesn't have precip; placeholder
+            "avgTemp": row["avgTemp"],
             "avgHumidity": row["avgHumidity"],
             "avgWindSpeed": row["avgWindSpeed"],
-            "maxUV": max_uv,
-            "avgSolarRad": avg_solar_rad,
-            "avgEt0": avg_et0,
+            # No ingested source measures these. They used to be derived from
+            # avgTemp with invented formulas, and precipitation was hard-coded
+            # to 0.0 — all four then rendered as ordinary chart series and were
+            # indistinguishable from measurements. Report the absence instead.
+            "totalPrecipitation": None,
+            "maxUV": None,
+            "avgSolarRad": None,
+            "avgEt0": None,
+            "sampleCount": row["sampleCount"],
+            "source": "sensor_readings",
         })
 
     return records

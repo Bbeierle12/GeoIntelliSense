@@ -60,13 +60,22 @@ export interface HistoricalWeatherRecord {
   locationName: string;
   month: string;
   year: number;
-  avgTemp: number;
-  totalPrecipitation: number;
-  avgHumidity: number;
-  avgWindSpeed: number;
-  maxUV: number;
-  avgSolarRad: number;
-  avgEt0: number;
+  /**
+   * Null where no ingested source measures the quantity for that month.
+   * Charts must skip nulls rather than substituting a value — these fields
+   * used to be derived from avgTemp with invented formulas, which made
+   * fabricated series indistinguishable from measured ones.
+   */
+  avgTemp: number | null;
+  totalPrecipitation: number | null;
+  avgHumidity: number | null;
+  avgWindSpeed: number | null;
+  maxUV: number | null;
+  avgSolarRad: number | null;
+  avgEt0: number | null;
+  /** Rows behind the average, so a thin month is visible as such. */
+  sampleCount?: number;
+  source?: string;
 }
 
 export interface ForecastRecord {
@@ -202,8 +211,10 @@ export class DataService {
 
       return await response.json() as HistoricalAQIRecord[];
     } catch (error) {
-      console.error('Failed to fetch historical AQI from analytics, falling back to mock:', error);
-      return this.getHistoricalAQIFallback(locationIds, startDate, endDate);
+      // No mock fallback. Substituting generated history here hid a 500 from
+      // this endpoint behind charts that looked measured.
+      console.error('[dataService] historical AQI unavailable:', error);
+      return [];
     }
   }
 
@@ -224,8 +235,10 @@ export class DataService {
 
       return await response.json() as HistoricalWeatherRecord[];
     } catch (error) {
-      console.error('Failed to fetch historical weather from analytics, falling back to mock:', error);
-      return this.getHistoricalWeatherFallback(locationIds, startDate, endDate);
+      // No mock fallback — see getHistoricalAQI. This endpoint was returning
+      // 500 for weeks and the Math.random() fallback rendered as real charts.
+      console.error('[dataService] historical weather unavailable:', error);
+      return [];
     }
   }
 
@@ -310,103 +323,7 @@ export class DataService {
     };
   }
 
-  // ---- Fallback methods using dashboardData ----
-
-  private getHistoricalAQIFallback(
-    locationIds?: string[],
-    startDate?: Date,
-    endDate?: Date
-  ): HistoricalAQIRecord[] {
-    const records: HistoricalAQIRecord[] = [];
-
-    Object.entries(dashboardData).forEach(([locationName, data]) => {
-      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
-
-      if ((!locationIds || locationIds.includes(locationId)) &&
-        'historicalAqi' in data) {
-        data.historicalAqi.forEach(monthData => {
-          const [monthStr, yearStr] = monthData.month.split(' ');
-          const year = 2000 + parseInt(yearStr.replace("'", ""));
-
-          records.push({
-            id: `hist_aqi_${locationId}_${monthData.month}`,
-            locationId,
-            locationName,
-            month: monthStr,
-            year,
-            avgAqi: monthData.avgAqi,
-            avgPm25: monthData.avgPm25
-          });
-        });
-      }
-    });
-
-    if (startDate || endDate) {
-      return records.filter(record => {
-        const recordDate = new Date(record.year, getMonthNumber(record.month));
-        if (startDate && recordDate < startDate) return false;
-        if (endDate && recordDate > endDate) return false;
-        return true;
-      });
-    }
-
-    return records;
-  }
-
-  private getHistoricalWeatherFallback(
-    locationIds?: string[],
-    startDate?: Date,
-    endDate?: Date
-  ): HistoricalWeatherRecord[] {
-    const records: HistoricalWeatherRecord[] = [];
-
-    Object.entries(dashboardData).forEach(([locationName, data]) => {
-      const locationId = locationName.toLowerCase().replace(/\s+/g, '_');
-
-      if ((!locationIds || locationIds.includes(locationId)) &&
-        'historicalWeather' in data) {
-        data.historicalWeather.forEach(monthData => {
-          const [monthStr, yearStr] = monthData.month.split(' ');
-          const year = 2000 + parseInt(yearStr.replace("'", ""));
-
-          records.push({
-            id: `hist_weather_${locationId}_${monthData.month}`,
-            locationId,
-            locationName,
-            month: monthStr,
-            year,
-            avgTemp: monthData.avgTemp,
-            totalPrecipitation: monthData.precipitation,
-            avgHumidity: Math.round(Math.max(20, 80 - (monthData.avgTemp - 50) * 0.8 + (Math.random() * 10))),
-            avgWindSpeed: Math.round(5 + Math.random() * 5),
-            maxUV: Math.round(Math.max(2, Math.min(11, (monthData.avgTemp - 40) / 5))),
-            avgSolarRad: Math.round(Math.max(200, (monthData.avgTemp - 30) * 10)),
-            avgEt0: Math.round(Math.max(1, (monthData.avgTemp - 40) / 10) * 10) / 10
-          });
-        });
-      }
-    });
-
-    if (startDate || endDate) {
-      return records.filter(record => {
-        const recordDate = new Date(record.year, getMonthNumber(record.month));
-        if (startDate && recordDate < startDate) return false;
-        if (endDate && recordDate > endDate) return false;
-        return true;
-      });
-    }
-
-    return records;
-  }
 }
 
-function getMonthNumber(month: string): number {
-  const months: { [key: string]: number } = {
-    'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3,
-    'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7,
-    'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-  };
-  return months[month] || 0;
-}
 
 export const dataService = DataService.getInstance();
