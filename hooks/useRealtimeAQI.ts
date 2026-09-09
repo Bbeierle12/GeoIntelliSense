@@ -77,13 +77,18 @@ const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
 // MOCK DATA GENERATOR (fallback when server unavailable)
 // =============================================================================
 
+// Kern County communities. Used only when the backend is unreachable; anything
+// rendered from this must be labelled as sample data, never as a reading.
 const mockCityData: Record<string, { lat: number; lng: number; baseAqi: number; basePm25: number }> = {
-  'Bakersfield': { lat: 35.3733, lng: -119.0187, baseAqi: 95, basePm25: 28 },
-  'Fresno': { lat: 36.7378, lng: -119.7871, baseAqi: 78, basePm25: 22 },
-  'Visalia': { lat: 36.3302, lng: -119.2921, baseAqi: 82, basePm25: 24 },
-  'Merced': { lat: 37.3022, lng: -120.4830, baseAqi: 65, basePm25: 18 },
-  'Modesto': { lat: 37.6391, lng: -120.9969, baseAqi: 58, basePm25: 15 },
-  'Stockton': { lat: 37.9577, lng: -121.2908, baseAqi: 52, basePm25: 12 },
+  'Bakersfield': { lat: 35.3733, lng: -119.0187, baseAqi: 77, basePm25: 18 },
+  'Shafter-Wasco': { lat: 35.5300, lng: -119.3000, baseAqi: 72, basePm25: 16 },
+  'Delano': { lat: 35.7688, lng: -119.2471, baseAqi: 70, basePm25: 15 },
+  'Taft': { lat: 35.1425, lng: -119.4565, baseAqi: 65, basePm25: 14 },
+  'Ridgecrest': { lat: 35.6225, lng: -117.6709, baseAqi: 42, basePm25: 8 },
+  'Mojave-Rosamond': { lat: 34.9500, lng: -118.1700, baseAqi: 41, basePm25: 8 },
+  'Tehachapi': { lat: 35.1322, lng: -118.4490, baseAqi: 40, basePm25: 7 },
+  'California City': { lat: 35.1258, lng: -117.9859, baseAqi: 40, basePm25: 7 },
+  'Lake Isabella': { lat: 35.6180, lng: -118.4730, baseAqi: 38, basePm25: 7 },
 };
 
 function generateMockData(): RealtimeAQIData {

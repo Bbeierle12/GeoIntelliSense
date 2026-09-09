@@ -91,7 +91,7 @@ const AnalysisView: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [location, setLocation] = useState<{ latitude: number, longitude: number } | null>(null);
     const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
-    const [predictiveLocation, setPredictiveLocation] = useState<Exclude<LocationKey, 'Valley Average'>>('Bakersfield');
+    const [predictiveLocation, setPredictiveLocation] = useState<Exclude<LocationKey, 'Kern County'>>('Bakersfield');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
@@ -364,7 +364,7 @@ const AnalysisView: React.FC = () => {
                             <select
                                 id="location-select"
                                 value={predictiveLocation}
-                                onChange={(e) => setPredictiveLocation(e.target.value as Exclude<LocationKey, 'Valley Average'>)}
+                                onChange={(e) => setPredictiveLocation(e.target.value as Exclude<LocationKey, 'Kern County'>)}
                                 className="w-full p-2 bg-brand-bg-dark border border-brand-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-primary"
                             >
                                 {cityLocations.map(loc => (

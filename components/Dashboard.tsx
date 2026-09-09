@@ -23,7 +23,7 @@ const parseMonthString = (monthStr: string): Date => {
 };
 
 const Dashboard: React.FC = () => {
-  const [selectedLocations, setSelectedLocations] = useState<LocationKey[]>(['Valley Average']);
+  const [selectedLocations, setSelectedLocations] = useState<LocationKey[]>(['Kern County']);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [weatherGranularity, setWeatherGranularity] = useState<'daily' | 'monthly'>('monthly');
@@ -54,7 +54,7 @@ const Dashboard: React.FC = () => {
         setHistoricalWeather(histWeather);
 
         if (histAqi.length > 0) {
-          const valleyData = histAqi.filter(r => r.locationName === 'Valley Average');
+          const valleyData = histAqi.filter(r => r.locationName === 'Kern County');
           if (valleyData.length > 0) {
             const firstMonth = parseMonthString(valleyData[0].month);
             const lastMonth = parseMonthString(valleyData[valleyData.length - 1].month);
@@ -99,7 +99,7 @@ const Dashboard: React.FC = () => {
   const activeAlerts = useMemo(() => {
     const alerts: { name: string; aqi: number }[] = [];
     const relevantRecords = aqiData.filter(r =>
-      selectedLocations.includes('Valley Average') || selectedLocations.includes(r.locationName as LocationKey)
+      selectedLocations.includes('Kern County') || selectedLocations.includes(r.locationName as LocationKey)
     );
 
     relevantRecords.forEach(r => {
@@ -349,8 +349,8 @@ const Dashboard: React.FC = () => {
 
       if (!aqi && !weather) return null;
 
-      if (location === 'Valley Average') {
-        const regionalData = aqiData.filter(r => r.locationName !== 'Valley Average').map(r => ({
+      if (location === 'Kern County') {
+        const regionalData = aqiData.filter(r => r.locationName !== 'Kern County').map(r => ({
           name: r.locationName,
           aqi: r.aqi,
           pm25: r.pm25
@@ -437,7 +437,7 @@ const Dashboard: React.FC = () => {
       }
     }
 
-    const cityLocations = selectedLocations.filter(loc => loc !== 'Valley Average') as Exclude<LocationKey, 'Valley Average'>[];
+    const cityLocations = selectedLocations.filter(loc => loc !== 'Kern County') as Exclude<LocationKey, 'Kern County'>[];
     return (
       <div className="bg-brand-bg-light p-6 rounded-lg shadow-lg">
         <h3 className="text-xl font-semibold text-slate-200 mb-4">Current Conditions Comparison</h3>

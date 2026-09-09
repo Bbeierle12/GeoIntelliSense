@@ -8,6 +8,8 @@ interface HistoryPoint {
   timestamp: string;
   aqi: number;
   pm25: number;
+  /** Present on every stored point; the endpoint no longer generates data. */
+  source?: string;
 }
 
 interface HistoryResponse {
@@ -16,9 +18,12 @@ interface HistoryResponse {
   count: number;
 }
 
+/** Bakersfield. "AQ-001" was not a real station id and matched nothing. */
+const BAKERSFIELD_STATION_ID = 'a1b2c3d4-0001-4000-8000-000000000002';
+
 export const AqiTrendWidget: React.FC = () => {
   const { data, loading, error, lastUpdated, refetch } = useLiveData<HistoryResponse>(
-    '/api/aqi-history?station_id=AQ-001&hours=24',
+    `/api/aqi-history?station_id=${BAKERSFIELD_STATION_ID}&hours=24`,
     { refreshInterval: 120_000 },
   );
 

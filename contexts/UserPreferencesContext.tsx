@@ -115,7 +115,7 @@ const defaultAnalysis: AnalysisSettings = {
 
 const defaultPreferences: UserPreferences = {
   theme: 'dark',
-  selectedLocations: ['Fresno', 'Bakersfield', 'Stockton'],
+  selectedLocations: ['Bakersfield', 'Delano', 'Tehachapi'],
   dateRange: null,
   mapZoomLevel: 8,
   mapCenter: { lat: 37.0902, lng: -120.7129 }, // San Joaquin Valley center

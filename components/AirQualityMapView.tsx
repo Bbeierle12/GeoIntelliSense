@@ -40,14 +40,19 @@ import { getAQIColor, getAQICategory } from '../utils/colorScales';
 // CONSTANTS
 // =============================================================================
 
-// City elevation data (feet)
+// Kern County community elevations (feet). The spread from the valley floor at
+// Bakersfield to Tehachapi at ~3,970 ft is what drives the inversion behaviour
+// this view visualises.
 const CITY_ELEVATIONS: Record<string, number> = {
   'Bakersfield': 404,
-  'Fresno': 308,
-  'Visalia': 334,
-  'Merced': 174,
-  'Modesto': 91,
-  'Stockton': 13,
+  'Shafter-Wasco': 350,
+  'Delano': 315,
+  'Taft': 950,
+  'Lake Isabella': 2605,
+  'Ridgecrest': 2290,
+  'California City': 2400,
+  'Mojave-Rosamond': 2580,
+  'Tehachapi': 3970,
 };
 
 // =============================================================================
@@ -209,10 +214,12 @@ const AirQualityMapView: React.FC = () => {
   const [useRealtimeData, setUseRealtimeData] = useState(true);
   const [showCrossSection, setShowCrossSection] = useState(false);
   
-  // Cross-section transect line (Bakersfield to Stockton by default)
+  // Cross-section transect: Bakersfield up to Tehachapi. This runs from the
+  // valley floor (404 ft) into the mountains (3,970 ft), which is the gradient
+  // that actually matters for inversions in Kern.
   const [transect, setTransect] = useState<TransectLine>({
     start: { lat: 35.3733, lng: -119.0187 }, // Bakersfield
-    end: { lat: 37.9577, lng: -121.2908 },   // Stockton
+    end: { lat: 35.1322, lng: -118.4490 },   // Tehachapi
   });
   
   // Layer visibility settings
@@ -452,7 +459,7 @@ const AirQualityMapView: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <StatsCard
           icon={<GaugeIcon className="w-4 h-4" />}
-          label="Valley Average AQI"
+          label="Kern County AQI"
           value={stats.avgAqi}
           color={getAqiColorLegacy(stats.avgAqi)}
           trend={stats.avgAqi > 100 ? 'up' : stats.avgAqi < 50 ? 'down' : 'stable'}

@@ -1,123 +1,105 @@
-// This file centralizes the mock data for the dashboard to be used across components.
+// Reference/fallback data for the dashboard — Kern County only.
+//
+// IMPORTANT: the AQI and weather numbers below are placeholders, not
+// measurements. Live values come from /api/aqi/headline (EPA AirNow, corrected
+// PurpleAir) and the weather endpoints. Anything rendered from this file should
+// be labelled as sample data; it exists so the UI has shape before the API
+// responds and so the location list has one definition.
+//
+// Scope note: this previously held six San Joaquin Valley cities spanning
+// 300 km. The project is Kern-only, so the entries are Kern communities.
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+
+const MONTHS = [
+  "Jul '23", "Aug '23", "Sep '23", "Oct '23", "Nov '23", "Dec '23",
+  "Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24",
+] as const;
+
+// Seasonal shape applied to each community's baseline, so the sample series
+// varies month to month the way valley air actually does (worst in summer and
+// midwinter, cleanest in spring) without pretending to be a measurement.
+const AQI_SEASON = [1.10, 1.20, 1.00, 0.78, 0.97, 1.12, 1.04, 0.74, 0.62, 0.58, 0.70, 0.92];
+const TEMP_SEASON = [2, 1, -7, -20, -33, -42, -41, -36, -28, -20, -10, -3];
+const PRECIP = [0.05, 0.1, 0.3, 1.2, 2.5, 4.1, 3.9, 3.2, 1.9, 0.8, 0.3, 0.05];
+
+const round = (v: number) => Math.round(v);
+
+/** Build one community's placeholder block from a small set of baselines. */
+function sampleCommunity(
+  name: string,
+  lat: number,
+  lng: number,
+  aqi: number,
+  pm25: number,
+  temp: number,
+  humidity: number,
+) {
+  return {
+    coords: { lat, lng },
+    currentAqi: { aqi, pm25 },
+    currentWeather: { temp, humidity },
+    weatherForecast: DAYS.map((day, i) => ({
+      day,
+      temp: temp + [1, 4, 7, 6, 3, 0, 1][i],
+      humidity: Math.max(5, humidity - [1, 3, 5, 4, 2, 2, -1][i]),
+    })),
+    dailyForecast: generateDailyForecast(name, 365),
+    historicalAqi: MONTHS.map((month, i) => ({
+      month,
+      avgAqi: round(aqi * AQI_SEASON[i]),
+      avgPm25: round(pm25 * AQI_SEASON[i]),
+    })),
+    historicalWeather: MONTHS.map((month, i) => ({
+      month,
+      avgTemp: round(temp + TEMP_SEASON[i]),
+      precipitation: PRECIP[i],
+    })),
+  };
+}
 
 export const dashboardData = {
-  'Valley Average': {
+  // County-wide roll-up. Has no `coords`/`currentAqi`, which is how the map and
+  // analysis views distinguish it from a single community.
+  'Kern County': {
     regionalAqi: [
-      { name: 'Bakersfield', aqi: 155, pm25: 65 },
-      { name: 'Fresno', aqi: 140, pm25: 55 },
-      { name: 'Visalia', aqi: 148, pm25: 60 },
-      { name: 'Merced', aqi: 110, pm25: 40 },
-      { name: 'Modesto', aqi: 125, pm25: 45 },
-      { name: 'Stockton', aqi: 98, pm25: 35 },
+      { name: 'Bakersfield', aqi: 77, pm25: 18 },
+      { name: 'Shafter-Wasco', aqi: 72, pm25: 16 },
+      { name: 'Delano', aqi: 70, pm25: 15 },
+      { name: 'Taft', aqi: 65, pm25: 14 },
+      { name: 'Ridgecrest', aqi: 42, pm25: 8 },
+      { name: 'Mojave-Rosamond', aqi: 41, pm25: 8 },
+      { name: 'Tehachapi', aqi: 40, pm25: 7 },
+      { name: 'California City', aqi: 40, pm25: 7 },
+      { name: 'Lake Isabella', aqi: 38, pm25: 7 },
     ],
-    currentWeather: { temp: 94, humidity: 28 },
-    weatherForecast: [
-      { day: 'Mon', temp: 95, humidity: 25 },
-      { day: 'Tue', temp: 98, humidity: 22 },
-      { day: 'Wed', temp: 102, humidity: 20 },
-      { day: 'Thu', temp: 101, humidity: 21 },
-      { day: 'Fri', temp: 99, humidity: 24 },
-      { day: 'Sat', temp: 96, humidity: 28 },
-      { day: 'Sun', temp: 97, humidity: 26 },
-    ],
-    dailyForecast: generateDailyForecast('Valley Average', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 130, avgPm25: 52 }, { month: 'Aug \'23', avgAqi: 145, avgPm25: 58 }, { month: 'Sep \'23', avgAqi: 120, avgPm25: 48 }, { month: 'Oct \'23', avgAqi: 90, avgPm25: 36 }, { month: 'Nov \'23', avgAqi: 115, avgPm25: 46 }, { month: 'Dec \'23', avgAqi: 135, avgPm25: 54 }, { month: 'Jan \'24', avgAqi: 125, avgPm25: 50 }, { month: 'Feb \'24', avgAqi: 85, avgPm25: 34 }, { month: 'Mar \'24', avgAqi: 70, avgPm25: 28 }, { month: 'Apr \'24', avgAqi: 65, avgPm25: 26 }, { month: 'May \'24', avgAqi: 80, avgPm25: 32 }, { month: 'Jun \'24', avgAqi: 110, avgPm25: 44 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 98, precipitation: 0.1 }, { month: 'Aug \'23', avgTemp: 96, precipitation: 0.2 }, { month: 'Sep \'23', avgTemp: 88, precipitation: 0.5 }, { month: 'Oct \'23', avgTemp: 75, precipitation: 1.5 }, { month: 'Nov \'23', avgTemp: 62, precipitation: 2.8 }, { month: 'Dec \'23', avgTemp: 54, precipitation: 4.5 }, { month: 'Jan \'24', avgTemp: 55, precipitation: 4.2 }, { month: 'Feb \'24', avgTemp: 60, precipitation: 3.5 }, { month: 'Mar \'24', avgTemp: 68, precipitation: 2.1 }, { month: 'Apr \'24', avgTemp: 75, precipitation: 1.0 }, { month: 'May \'24', avgTemp: 85, precipitation: 0.4 }, { month: 'Jun \'24', avgTemp: 92, precipitation: 0.1 },
-    ],
+    currentWeather: { temp: 94, humidity: 25 },
+    weatherForecast: DAYS.map((day, i) => ({
+      day,
+      temp: 94 + [1, 4, 7, 6, 3, 0, 1][i],
+      humidity: 25 - [1, 3, 5, 4, 2, 2, -1][i],
+    })),
+    dailyForecast: generateDailyForecast('Kern County', 365),
+    historicalAqi: MONTHS.map((month, i) => ({
+      month,
+      avgAqi: round(58 * AQI_SEASON[i]),
+      avgPm25: round(12 * AQI_SEASON[i]),
+    })),
+    historicalWeather: MONTHS.map((month, i) => ({
+      month,
+      avgTemp: round(94 + TEMP_SEASON[i]),
+      precipitation: PRECIP[i],
+    })),
   },
-  'Bakersfield': {
-    coords: { lat: 35.3733, lng: -119.0187 },
-    currentAqi: { aqi: 155, pm25: 65 },
-    currentWeather: { temp: 98, humidity: 23 },
-    weatherForecast: [
-        { day: 'Mon', temp: 99, humidity: 22 }, { day: 'Tue', temp: 102, humidity: 20 }, { day: 'Wed', temp: 105, humidity: 18 }, { day: 'Thu', temp: 104, humidity: 19 }, { day: 'Fri', temp: 101, humidity: 21 }, { day: 'Sat', temp: 98, humidity: 25 }, { day: 'Sun', temp: 99, humidity: 24 },
-    ],
-    dailyForecast: generateDailyForecast('Bakersfield', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 140, avgPm25: 56 }, { month: 'Aug \'23', avgAqi: 155, avgPm25: 62 }, { month: 'Sep \'23', avgAqi: 130, avgPm25: 52 }, { month: 'Oct \'23', avgAqi: 100, avgPm25: 40 }, { month: 'Nov \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Dec \'23', avgAqi: 145, avgPm25: 58 }, { month: 'Jan \'24', avgAqi: 135, avgPm25: 54 }, { month: 'Feb \'24', avgAqi: 95, avgPm25: 38 }, { month: 'Mar \'24', avgAqi: 80, avgPm25: 32 }, { month: 'Apr \'24', avgAqi: 75, avgPm25: 30 }, { month: 'May \'24', avgAqi: 90, avgPm25: 36 }, { month: 'Jun \'24', avgAqi: 120, avgPm25: 48 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 100, precipitation: 0.05 }, { month: 'Aug \'23', avgTemp: 99, precipitation: 0.1 }, { month: 'Sep \'23', avgTemp: 91, precipitation: 0.3 }, { month: 'Oct \'23', avgTemp: 78, precipitation: 1.2 }, { month: 'Nov \'23', avgTemp: 65, precipitation: 2.5 }, { month: 'Dec \'23', avgTemp: 56, precipitation: 4.1 }, { month: 'Jan \'24', avgTemp: 57, precipitation: 3.9 }, { month: 'Feb \'24', avgTemp: 62, precipitation: 3.2 }, { month: 'Mar \'24', avgTemp: 70, precipitation: 1.9 }, { month: 'Apr \'24', avgTemp: 78, precipitation: 0.8 }, { month: 'May \'24', avgTemp: 88, precipitation: 0.3 }, { month: 'Jun \'24', avgTemp: 95, precipitation: 0.05 },
-    ],
-  },
-  'Fresno': {
-    coords: { lat: 36.7378, lng: -119.7871 },
-    currentAqi: { aqi: 140, pm25: 55 },
-    currentWeather: { temp: 95, humidity: 25 },
-    weatherForecast: [
-        { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
-    ],
-    dailyForecast: generateDailyForecast('Fresno', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 135, avgPm25: 54 }, { month: 'Aug \'23', avgAqi: 150, avgPm25: 60 }, { month: 'Sep \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Oct \'23', avgAqi: 95, avgPm25: 38 }, { month: 'Nov \'23', avgAqi: 120, avgPm25: 48 }, { month: 'Dec \'23', avgAqi: 140, avgPm25: 56 }, { month: 'Jan \'24', avgAqi: 130, avgPm25: 52 }, { month: 'Feb \'24', avgAqi: 90, avgPm25: 36 }, { month: 'Mar \'24', avgAqi: 75, avgPm25: 30 }, { month: 'Apr \'24', avgAqi: 70, avgPm25: 28 }, { month: 'May \'24', avgAqi: 85, avgPm25: 34 }, { month: 'Jun \'24', avgAqi: 115, avgPm25: 46 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 99, precipitation: 0.1 }, { month: 'Aug \'23', avgTemp: 97, precipitation: 0.2 }, { month: 'Sep \'23', avgTemp: 89, precipitation: 0.5 }, { month: 'Oct \'23', avgTemp: 76, precipitation: 1.5 }, { month: 'Nov \'23', avgTemp: 63, precipitation: 2.8 }, { month: 'Dec \'23', avgTemp: 55, precipitation: 4.5 }, { month: 'Jan \'24', avgTemp: 56, precipitation: 4.2 }, { month: 'Feb \'24', avgTemp: 61, precipitation: 3.5 }, { month: 'Mar \'24', avgTemp: 69, precipitation: 2.1 }, { month: 'Apr \'24', avgTemp: 76, precipitation: 1.0 }, { month: 'May \'24', avgTemp: 86, precipitation: 0.4 }, { month: 'Jun \'24', avgTemp: 93, precipitation: 0.1 },
-    ],
-  },
-  'Visalia': {
-    coords: { lat: 36.3302, lng: -119.2921 },
-    currentAqi: { aqi: 148, pm25: 60 },
-    currentWeather: { temp: 96, humidity: 24 },
-    weatherForecast: [
-        { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
-    ],
-    dailyForecast: generateDailyForecast('Visalia', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 135, avgPm25: 54 }, { month: 'Aug \'23', avgAqi: 150, avgPm25: 60 }, { month: 'Sep \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Oct \'23', avgAqi: 95, avgPm25: 38 }, { month: 'Nov \'23', avgAqi: 120, avgPm25: 48 }, { month: 'Dec \'23', avgAqi: 140, avgPm25: 56 }, { month: 'Jan \'24', avgAqi: 130, avgPm25: 52 }, { month: 'Feb \'24', avgAqi: 90, avgPm25: 36 }, { month: 'Mar \'24', avgAqi: 75, avgPm25: 30 }, { month: 'Apr \'24', avgAqi: 70, avgPm25: 28 }, { month: 'May \'24', avgAqi: 85, avgPm25: 34 }, { month: 'Jun \'24', avgAqi: 115, avgPm25: 46 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 99, precipitation: 0.1 }, { month: 'Aug \'23', avgTemp: 97, precipitation: 0.2 }, { month: 'Sep \'23', avgTemp: 89, precipitation: 0.5 }, { month: 'Oct \'23', avgTemp: 76, precipitation: 1.5 }, { month: 'Nov \'23', avgTemp: 63, precipitation: 2.8 }, { month: 'Dec \'23', avgTemp: 55, precipitation: 4.5 }, { month: 'Jan \'24', avgTemp: 56, precipitation: 4.2 }, { month: 'Feb \'24', avgTemp: 61, precipitation: 3.5 }, { month: 'Mar \'24', avgTemp: 69, precipitation: 2.1 }, { month: 'Apr \'24', avgTemp: 76, precipitation: 1.0 }, { month: 'May \'24', avgTemp: 86, precipitation: 0.4 }, { month: 'Jun \'24', avgTemp: 93, precipitation: 0.1 },
-    ],
-  },
-    'Merced': {
-    coords: { lat: 37.3022, lng: -120.4830 },
-    currentAqi: { aqi: 110, pm25: 40 },
-    currentWeather: { temp: 94, humidity: 28 },
-    weatherForecast: [
-        { day: 'Mon', temp: 96, humidity: 24 }, { day: 'Tue', temp: 99, humidity: 21 }, { day: 'Wed', temp: 103, humidity: 19 }, { day: 'Thu', temp: 102, humidity: 20 }, { day: 'Fri', temp: 100, humidity: 23 }, { day: 'Sat', temp: 97, humidity: 27 }, { day: 'Sun', temp: 98, humidity: 25 },
-    ],
-    dailyForecast: generateDailyForecast('Merced', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 135, avgPm25: 54 }, { month: 'Aug \'23', avgAqi: 150, avgPm25: 60 }, { month: 'Sep \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Oct \'23', avgAqi: 95, avgPm25: 38 }, { month: 'Nov \'23', avgAqi: 120, avgPm25: 48 }, { month: 'Dec \'23', avgAqi: 140, avgPm25: 56 }, { month: 'Jan \'24', avgAqi: 130, avgPm25: 52 }, { month: 'Feb \'24', avgAqi: 90, avgPm25: 36 }, { month: 'Mar \'24', avgAqi: 75, avgPm25: 30 }, { month: 'Apr \'24', avgAqi: 70, avgPm25: 28 }, { month: 'May \'24', avgAqi: 85, avgPm25: 34 }, { month: 'Jun \'24', avgAqi: 115, avgPm25: 46 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 99, precipitation: 0.1 }, { month: 'Aug \'23', avgTemp: 97, precipitation: 0.2 }, { month: 'Sep \'23', avgTemp: 89, precipitation: 0.5 }, { month: 'Oct \'23', avgTemp: 76, precipitation: 1.5 }, { month: 'Nov \'23', avgTemp: 63, precipitation: 2.8 }, { month: 'Dec \'23', avgTemp: 55, precipitation: 4.5 }, { month: 'Jan \'24', avgTemp: 56, precipitation: 4.2 }, { month: 'Feb \'24', avgTemp: 61, precipitation: 3.5 }, { month: 'Mar \'24', avgTemp: 69, precipitation: 2.1 }, { month: 'Apr \'24', avgTemp: 76, precipitation: 1.0 }, { month: 'May \'24', avgTemp: 86, precipitation: 0.4 }, { month: 'Jun \'24', avgTemp: 93, precipitation: 0.1 },
-    ],
-  },
-    'Modesto': {
-    coords: { lat: 37.6391, lng: -120.9969 },
-    currentAqi: { aqi: 125, pm25: 45 },
-    currentWeather: { temp: 91, humidity: 32 },
-    weatherForecast: [
-        { day: 'Mon', temp: 92, humidity: 30 }, { day: 'Tue', temp: 94, humidity: 28 }, { day: 'Wed', temp: 97, humidity: 25 }, { day: 'Thu', temp: 96, humidity: 26 }, { day: 'Fri', temp: 94, humidity: 29 }, { day: 'Sat', temp: 91, humidity: 33 }, { day: 'Sun', temp: 92, humidity: 31 },
-    ],
-    dailyForecast: generateDailyForecast('Modesto', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 110, avgPm25: 44 }, { month: 'Aug \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Sep \'23', avgAqi: 100, avgPm25: 40 }, { month: 'Oct \'23', avgAqi: 70, avgPm25: 28 }, { month: 'Nov \'23', avgAqi: 95, avgPm25: 38 }, { month: 'Dec \'23', avgAqi: 115, avgPm25: 46 }, { month: 'Jan \'24', avgAqi: 105, avgPm25: 42 }, { month: 'Feb \'24', avgAqi: 65, avgPm25: 26 }, { month: 'Mar \'24', avgAqi: 50, avgPm25: 20 }, { month: 'Apr \'24', avgAqi: 45, avgPm25: 18 }, { month: 'May \'24', avgAqi: 60, avgPm25: 24 }, { month: 'Jun \'24', avgAqi: 90, avgPm25: 36 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 94, precipitation: 0.2 }, { month: 'Aug \'23', avgTemp: 92, precipitation: 0.3 }, { month: 'Sep \'23', avgTemp: 85, precipitation: 0.8 }, { month: 'Oct \'23', avgTemp: 72, precipitation: 1.8 }, { month: 'Nov \'23', avgTemp: 59, precipitation: 3.2 }, { month: 'Dec \'23', avgTemp: 51, precipitation: 5.0 }, { month: 'Jan \'24', avgTemp: 52, precipitation: 4.8 }, { month: 'Feb \'24', avgTemp: 57, precipitation: 3.9 }, { month: 'Mar \'24', avgTemp: 65, precipitation: 2.5 }, { month: 'Apr \'24', avgTemp: 72, precipitation: 1.2 }, { month: 'May \'24', avgTemp: 81, precipitation: 0.6 }, { month: 'Jun \'24', avgTemp: 88, precipitation: 0.2 },
-    ],
-  },
-  'Stockton': {
-    coords: { lat: 37.9577, lng: -121.2908 },
-    currentAqi: { aqi: 98, pm25: 35 },
-    currentWeather: { temp: 90, humidity: 34 },
-    weatherForecast: [
-        { day: 'Mon', temp: 92, humidity: 30 }, { day: 'Tue', temp: 94, humidity: 28 }, { day: 'Wed', temp: 97, humidity: 25 }, { day: 'Thu', temp: 96, humidity: 26 }, { day: 'Fri', temp: 94, humidity: 29 }, { day: 'Sat', temp: 91, humidity: 33 }, { day: 'Sun', temp: 92, humidity: 31 },
-    ],
-    dailyForecast: generateDailyForecast('Stockton', 365),
-    historicalAqi: [
-        { month: 'Jul \'23', avgAqi: 110, avgPm25: 44 }, { month: 'Aug \'23', avgAqi: 125, avgPm25: 50 }, { month: 'Sep \'23', avgAqi: 100, avgPm25: 40 }, { month: 'Oct \'23', avgAqi: 70, avgPm25: 28 }, { month: 'Nov \'23', avgAqi: 95, avgPm25: 38 }, { month: 'Dec \'23', avgAqi: 115, avgPm25: 46 }, { month: 'Jan \'24', avgAqi: 105, avgPm25: 42 }, { month: 'Feb \'24', avgAqi: 65, avgPm25: 26 }, { month: 'Mar \'24', avgAqi: 50, avgPm25: 20 }, { month: 'Apr \'24', avgAqi: 45, avgPm25: 18 }, { month: 'May \'24', avgAqi: 60, avgPm25: 24 }, { month: 'Jun \'24', avgAqi: 90, avgPm25: 36 },
-    ],
-    historicalWeather: [
-        { month: 'Jul \'23', avgTemp: 94, precipitation: 0.2 }, { month: 'Aug \'23', avgTemp: 92, precipitation: 0.3 }, { month: 'Sep \'23', avgTemp: 85, precipitation: 0.8 }, { month: 'Oct \'23', avgTemp: 72, precipitation: 1.8 }, { month: 'Nov \'23', avgTemp: 59, precipitation: 3.2 }, { month: 'Dec \'23', avgTemp: 51, precipitation: 5.0 }, { month: 'Jan \'24', avgTemp: 52, precipitation: 4.8 }, { month: 'Feb \'24', avgTemp: 57, precipitation: 3.9 }, { month: 'Mar \'24', avgTemp: 65, precipitation: 2.5 }, { month: 'Apr \'24', avgTemp: 72, precipitation: 1.2 }, { month: 'May \'24', avgTemp: 81, precipitation: 0.6 }, { month: 'Jun \'24', avgTemp: 88, precipitation: 0.2 },
-    ],
-  }
+  'Bakersfield': sampleCommunity('Bakersfield', 35.3733, -119.0187, 77, 18, 98, 23),
+  'Shafter-Wasco': sampleCommunity('Shafter-Wasco', 35.5300, -119.3000, 72, 16, 97, 24),
+  'Delano': sampleCommunity('Delano', 35.7688, -119.2471, 70, 15, 96, 25),
+  'Taft': sampleCommunity('Taft', 35.1425, -119.4565, 65, 14, 95, 22),
+  'Tehachapi': sampleCommunity('Tehachapi', 35.1322, -118.4490, 40, 7, 82, 20),
+  'Ridgecrest': sampleCommunity('Ridgecrest', 35.6225, -117.6709, 42, 8, 95, 15),
+  'Lake Isabella': sampleCommunity('Lake Isabella', 35.6180, -118.4730, 38, 7, 90, 19),
+  'California City': sampleCommunity('California City', 35.1258, -117.9859, 40, 7, 92, 17),
+  'Mojave-Rosamond': sampleCommunity('Mojave-Rosamond', 34.9500, -118.1700, 41, 8, 91, 18),
 };
 
 // Helper functions for meteorological calculations
@@ -201,16 +183,19 @@ function generateDailyForecast(location: string, days: number) {
     baseTemp: number; baseAqi: number; basePm25: number; baseHumidity: number;
     elevation: number; latitude: number;
   }> = {
-    'Valley Average': { baseTemp: 94, baseAqi: 130, basePm25: 52, baseHumidity: 28, elevation: 300, latitude: 36.5 },
-    'Bakersfield': { baseTemp: 98, baseAqi: 155, basePm25: 65, baseHumidity: 23, elevation: 404, latitude: 35.3733 },
-    'Fresno': { baseTemp: 95, baseAqi: 140, basePm25: 55, baseHumidity: 25, elevation: 308, latitude: 36.7378 },
-    'Visalia': { baseTemp: 96, baseAqi: 148, basePm25: 60, baseHumidity: 24, elevation: 334, latitude: 36.3302 },
-    'Merced': { baseTemp: 94, baseAqi: 110, basePm25: 40, baseHumidity: 28, elevation: 174, latitude: 37.3022 },
-    'Modesto': { baseTemp: 91, baseAqi: 125, basePm25: 45, baseHumidity: 32, elevation: 91, latitude: 37.6391 },
-    'Stockton': { baseTemp: 90, baseAqi: 98, basePm25: 35, baseHumidity: 34, elevation: 13, latitude: 37.9577 },
+    'Kern County':      { baseTemp: 94, baseAqi: 58, basePm25: 12, baseHumidity: 25, elevation: 400,  latitude: 35.4 },
+    'Bakersfield':      { baseTemp: 98, baseAqi: 77, basePm25: 18, baseHumidity: 23, elevation: 404,  latitude: 35.3733 },
+    'Shafter-Wasco':    { baseTemp: 97, baseAqi: 72, basePm25: 16, baseHumidity: 24, elevation: 350,  latitude: 35.5300 },
+    'Delano':           { baseTemp: 96, baseAqi: 70, basePm25: 15, baseHumidity: 25, elevation: 315,  latitude: 35.7688 },
+    'Taft':             { baseTemp: 95, baseAqi: 65, basePm25: 14, baseHumidity: 22, elevation: 950,  latitude: 35.1425 },
+    'Tehachapi':        { baseTemp: 82, baseAqi: 40, basePm25: 7,  baseHumidity: 20, elevation: 3970, latitude: 35.1322 },
+    'Ridgecrest':       { baseTemp: 95, baseAqi: 42, basePm25: 8,  baseHumidity: 15, elevation: 2290, latitude: 35.6225 },
+    'Lake Isabella':    { baseTemp: 90, baseAqi: 38, basePm25: 7,  baseHumidity: 19, elevation: 2605, latitude: 35.6180 },
+    'California City':  { baseTemp: 92, baseAqi: 40, basePm25: 7,  baseHumidity: 17, elevation: 2400, latitude: 35.1258 },
+    'Mojave-Rosamond':  { baseTemp: 91, baseAqi: 41, basePm25: 8,  baseHumidity: 18, elevation: 2580, latitude: 34.9500 },
   };
   
-  const params = locationParams[location] || locationParams['Valley Average'];
+  const params = locationParams[location] || locationParams['Kern County'];
   
   for (let i = 0; i < days; i++) {
     const date = new Date(baseDate);
@@ -337,4 +322,4 @@ function generateDailyForecast(location: string, days: number) {
 
 export type LocationKey = keyof typeof dashboardData;
 export const locations = Object.keys(dashboardData) as LocationKey[];
-export const cityLocations = locations.filter(l => l !== 'Valley Average') as Exclude<LocationKey, 'Valley Average'>[];
+export const cityLocations = locations.filter(l => l !== 'Kern County') as Exclude<LocationKey, 'Kern County'>[];

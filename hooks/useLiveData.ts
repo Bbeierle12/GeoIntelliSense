@@ -104,15 +104,21 @@ export interface AqiReading {
   lng: number;
   county: string;
   aqi: number;
+  /** EPA-corrected PM2.5 in µg/m³. */
   pm25: number;
-  pm10: number;
-  o3: number;
-  temperature: number;
-  humidity: number;
-  windSpeed: number;
-  windDirection: number;
+  // The backend omits any pollutant it did not measure rather than sending 0,
+  // so everything below can legitimately be absent.
+  pm10?: number;
+  o3?: number;
+  temperature?: number;
+  humidity?: number;
+  windSpeed?: number;
+  windDirection?: number;
   category: string;
   source: string;
+  /** e.g. "epa_barkjohn_2022" when a sensor correction was applied. */
+  correction?: string;
+  rawSensorCount?: number;
   timestamp: string;
 }
 
@@ -124,6 +130,50 @@ export interface AqiSnapshot {
 
 export function useAqiSnapshot() {
   return useLiveData<AqiSnapshot>('/api/aqi-snapshot', { refreshInterval: 30_000 });
+}
+
+// ── Authoritative headline AQI ────────────────────────
+// The published AQI is the maximum across pollutants, so a PM2.5-only sensor
+// value can never match AirNow or IQAir. This endpoint returns the official
+// AirNow figure with the local sensor reading carried alongside.
+
+export interface CommunityAqi {
+  community: string;
+  aqi: number | null;
+  category?: string;
+  color?: string;
+  /** "airnow" | "purpleair_pm25_only" | "unavailable" */
+  basis: string;
+  dominantPollutant?: string | null;
+  note?: string;
+  official?: {
+    reportingArea: string;
+    aqi: number;
+    pm25Aqi: number | null;
+    pm10Aqi: number | null;
+    o3Aqi: number | null;
+    observedAt: string | null;
+    stale: boolean;
+    dataSource: string;
+  } | null;
+  sensors?: {
+    pm25: number;
+    pm25Aqi: number;
+    sensorCount: number | null;
+    correction: string | null;
+    dataSource: string;
+  } | null;
+}
+
+export interface AqiHeadline {
+  county: string;
+  primary: CommunityAqi | null;
+  communities: CommunityAqi[];
+  note: string;
+}
+
+export function useAqiHeadline() {
+  return useLiveData<AqiHeadline>('/api/aqi/headline', { refreshInterval: 300_000 });
 }
 
 export interface PredictionResult {

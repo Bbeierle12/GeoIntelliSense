@@ -8,14 +8,14 @@ const parseMonthString = (monthStr: string): Date => {
 };
 
 export const useDashboardData = () => {
-  const [selectedLocations, setSelectedLocations] = useState<LocationKey[]>(['Valley Average']);
+  const [selectedLocations, setSelectedLocations] = useState<LocationKey[]>(['Kern County']);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [weatherGranularity, setWeatherGranularity] = useState<'daily' | 'monthly'>('monthly');
 
   useEffect(() => {
     // Set default date range to the full 12 months of available data
-    const sampleData = dashboardData['Valley Average'].historicalAqi;
+    const sampleData = dashboardData['Kern County'].historicalAqi;
     if (sampleData.length > 0) {
         const firstMonth = parseMonthString(sampleData[0].month);
         const lastMonth = parseMonthString(sampleData[sampleData.length - 1].month);
@@ -47,7 +47,7 @@ export const useDashboardData = () => {
         const locData = dashboardData[loc];
         if (!locData) return;
 
-        if (loc === 'Valley Average' && 'regionalAqi' in locData) {
+        if (loc === 'Kern County' && 'regionalAqi' in locData) {
             locData.regionalAqi.forEach(city => {
                 if (city.aqi > 100 && !checkedLocations.has(city.name)) {
                     alerts.push({ name: city.name, aqi: city.aqi });
@@ -81,7 +81,7 @@ export const useDashboardData = () => {
             });
         }
     });
-    const dayOrder = dashboardData['Valley Average'].weatherForecast.map(d => d.day);
+    const dayOrder = dashboardData['Kern County'].weatherForecast.map(d => d.day);
     return dayOrder.map(day => dayMap.get(day)).filter(Boolean);
   }, [selectedLocations]);
 
@@ -92,7 +92,7 @@ export const useDashboardData = () => {
     const end = new Date(endDate);
     end.setMonth(end.getMonth() + 1, 0); // Set to last day of month to be inclusive
 
-    const allMonths = dashboardData['Valley Average'][dataType].map(d => d.month);
+    const allMonths = dashboardData['Kern County'][dataType].map(d => d.month);
     const filteredMonthOrder = allMonths.filter(monthStr => {
         const date = parseMonthString(monthStr);
         return date >= start && date <= end;

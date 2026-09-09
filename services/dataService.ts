@@ -282,7 +282,7 @@ export class DataService {
 
     locations.unshift({
       id: 'valley_average',
-      name: 'Valley Average',
+      name: 'Kern County',
       latitude: 36.7378,
       longitude: -119.7871
     });

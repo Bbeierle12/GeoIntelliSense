@@ -51,7 +51,7 @@ describe('User Preferences Context Tests', () => {
     it('should have correct default selected locations', () => {
       const { result } = renderHook(() => useUserPreferences(), { wrapper });
       
-      expect(result.current.preferences.selectedLocations).toEqual(['Fresno', 'Bakersfield', 'Stockton']);
+      expect(result.current.preferences.selectedLocations).toEqual(['Bakersfield', 'Delano', 'Tehachapi']);
     });
 
     it('should have correct default map zoom level', () => {
@@ -157,7 +157,7 @@ describe('User Preferences Context Tests', () => {
       const customPreferences: Partial<UserPreferences> = {
         theme: 'light' as Theme,
         mapZoomLevel: 12,
-        selectedLocations: ['Fresno'],
+        selectedLocations: ['Delano'],
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(customPreferences));
       
@@ -165,7 +165,7 @@ describe('User Preferences Context Tests', () => {
       
       expect(result.current.preferences.theme).toBe('light');
       expect(result.current.preferences.mapZoomLevel).toBe(12);
-      expect(result.current.preferences.selectedLocations).toEqual(['Fresno']);
+      expect(result.current.preferences.selectedLocations).toEqual(['Delano']);
     });
 
     it('should merge stored preferences with defaults', () => {
@@ -181,7 +181,7 @@ describe('User Preferences Context Tests', () => {
       expect(result.current.preferences.theme).toBe('light');
       // But also the default values for other properties
       expect(result.current.preferences.mapZoomLevel).toBe(8);
-      expect(result.current.preferences.selectedLocations).toEqual(['Fresno', 'Bakersfield', 'Stockton']);
+      expect(result.current.preferences.selectedLocations).toEqual(['Bakersfield', 'Delano', 'Tehachapi']);
     });
 
     it('should handle corrupted localStorage data gracefully', () => {
@@ -199,57 +199,57 @@ describe('User Preferences Context Tests', () => {
     it('should toggle location selection (add new location)', () => {
       const { result } = renderHook(() => useUserPreferences(), { wrapper });
       
-      // Initial locations: ['Fresno', 'Bakersfield', 'Stockton']
-      expect(result.current.preferences.selectedLocations).not.toContain('Modesto');
+      // Initial locations: ['Bakersfield', 'Delano', 'Tehachapi']
+      expect(result.current.preferences.selectedLocations).not.toContain('Taft');
       
       act(() => {
-        result.current.toggleLocation('Modesto');
+        result.current.toggleLocation('Taft');
       });
       
-      expect(result.current.preferences.selectedLocations).toContain('Modesto');
+      expect(result.current.preferences.selectedLocations).toContain('Taft');
     });
 
     it('should toggle location selection (remove existing location)', () => {
       const { result } = renderHook(() => useUserPreferences(), { wrapper });
       
-      // Initial locations: ['Fresno', 'Bakersfield', 'Stockton']
-      expect(result.current.preferences.selectedLocations).toContain('Fresno');
+      // Initial locations: ['Bakersfield', 'Delano', 'Tehachapi']
+      expect(result.current.preferences.selectedLocations).toContain('Delano');
       
       act(() => {
-        result.current.toggleLocation('Fresno');
+        result.current.toggleLocation('Delano');
       });
       
-      expect(result.current.preferences.selectedLocations).not.toContain('Fresno');
+      expect(result.current.preferences.selectedLocations).not.toContain('Delano');
     });
 
     it('should not allow deselecting the last location', () => {
       // Start with only one location
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ selectedLocations: ['Fresno'] }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ selectedLocations: ['Delano'] }));
       
       const { result } = renderHook(() => useUserPreferences(), { wrapper });
       
       expect(result.current.preferences.selectedLocations).toHaveLength(1);
       
       act(() => {
-        result.current.toggleLocation('Fresno');
+        result.current.toggleLocation('Delano');
       });
       
-      // Should still have Fresno selected
+      // Should still have Delano selected
       expect(result.current.preferences.selectedLocations).toHaveLength(1);
-      expect(result.current.preferences.selectedLocations).toContain('Fresno');
+      expect(result.current.preferences.selectedLocations).toContain('Delano');
     });
 
     it('should allow deselecting locations when more than one is selected', () => {
       const { result } = renderHook(() => useUserPreferences(), { wrapper });
       
-      // Initial: ['Fresno', 'Bakersfield', 'Stockton'] (3 locations)
+      // Initial: ['Bakersfield', 'Delano', 'Tehachapi'] (3 locations)
       act(() => {
-        result.current.toggleLocation('Fresno');
+        result.current.toggleLocation('Delano');
       });
       
       // Should have 2 locations now
       expect(result.current.preferences.selectedLocations).toHaveLength(2);
-      expect(result.current.preferences.selectedLocations).not.toContain('Fresno');
+      expect(result.current.preferences.selectedLocations).not.toContain('Delano');
     });
 
     it('should preserve order when adding locations', () => {
@@ -258,12 +258,12 @@ describe('User Preferences Context Tests', () => {
       const initialLocations = [...result.current.preferences.selectedLocations];
       
       act(() => {
-        result.current.toggleLocation('Modesto');
+        result.current.toggleLocation('Taft');
       });
       
       // New location should be added at the end
       expect(result.current.preferences.selectedLocations.slice(0, -1)).toEqual(initialLocations);
-      expect(result.current.preferences.selectedLocations[result.current.preferences.selectedLocations.length - 1]).toBe('Modesto');
+      expect(result.current.preferences.selectedLocations[result.current.preferences.selectedLocations.length - 1]).toBe('Taft');
     });
   });
 
@@ -346,12 +346,12 @@ describe('User Preferences Context Tests', () => {
       act(() => {
         result.current.toggleTheme();
         result.current.updatePreferences({ mapZoomLevel: 15 });
-        result.current.toggleLocation('Modesto');
+        result.current.toggleLocation('Taft');
       });
       
       expect(result.current.preferences.theme).toBe('light');
       expect(result.current.preferences.mapZoomLevel).toBe(15);
-      expect(result.current.preferences.selectedLocations).toContain('Modesto');
+      expect(result.current.preferences.selectedLocations).toContain('Taft');
       
       // Reset
       act(() => {
@@ -361,7 +361,7 @@ describe('User Preferences Context Tests', () => {
       // Verify defaults
       expect(result.current.preferences.theme).toBe('dark');
       expect(result.current.preferences.mapZoomLevel).toBe(8);
-      expect(result.current.preferences.selectedLocations).toEqual(['Fresno', 'Bakersfield', 'Stockton']);
+      expect(result.current.preferences.selectedLocations).toEqual(['Bakersfield', 'Delano', 'Tehachapi']);
     });
 
     it('should clear localStorage on reset', () => {
@@ -407,7 +407,7 @@ describe('User Preferences Context Tests', () => {
           <span data-testid="locations">{preferences.selectedLocations.join(',')}</span>
           <span data-testid="zoom">{preferences.mapZoomLevel}</span>
           <button onClick={toggleTheme} data-testid="toggle-theme">Toggle Theme</button>
-          <button onClick={() => toggleLocation('Modesto')} data-testid="toggle-modesto">Toggle Modesto</button>
+          <button onClick={() => toggleLocation('Taft')} data-testid="toggle-taft">Toggle Taft</button>
           <button onClick={resetPreferences} data-testid="reset">Reset</button>
         </div>
       );
@@ -438,11 +438,11 @@ describe('User Preferences Context Tests', () => {
         </UserPreferencesProvider>
       );
       
-      expect(screen.getByTestId('locations')).not.toHaveTextContent('Modesto');
+      expect(screen.getByTestId('locations')).not.toHaveTextContent('Taft');
       
-      await user.click(screen.getByTestId('toggle-modesto'));
+      await user.click(screen.getByTestId('toggle-taft'));
       
-      expect(screen.getByTestId('locations')).toHaveTextContent('Modesto');
+      expect(screen.getByTestId('locations')).toHaveTextContent('Taft');
     });
 
     it('should reset via component', async () => {
