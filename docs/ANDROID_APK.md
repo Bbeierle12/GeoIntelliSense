@@ -152,16 +152,18 @@ Rules for the address:
   `http://mybox.local:8080`, and only in **debug** builds.
   Release builds enforce HTTPS at the OS level.
 
-> **`http://` saved fine but nothing happens? That is mixed content.**
+> **Prefer `https://`. It removes a whole class of silent failure.**
 > The WebView origin is `https://localhost` (`androidScheme: 'https'`), so an
-> `http://` request is mixed content and the WebView discards it *before* it
-> reaches the network — the address validates, the app reloads, Backend Status
-> stays *Disconnected*, and the server sees no request at all. It works only in
-> a build with **both** `android.allowMixedContent: true` in
-> `capacitor.config.ts` **and** `android:usesCleartextTraffic="true"` from
-> `android/app/src/debug/AndroidManifest.xml`. An APK built before those landed
-> can never use an `http://` address, however many times you press
-> *Save & reconnect*. Prefer an `https://` address; it has none of this.
+> `http://` server address is mixed content. It works only in a build that has
+> **both** `android.allowMixedContent: true` in `capacitor.config.ts` **and**
+> `android:usesCleartextTraffic="true"` from
+> `android/app/src/debug/AndroidManifest.xml`. In a build missing either one,
+> the WebView discards the request before it reaches the network: the address
+> validates, the app reloads, Backend Status stays *Disconnected*, and the
+> server sees nothing — indistinguishable from a firewall or DNS fault, and no
+> number of *Save & reconnect* taps changes it. Check a build with
+> `unzip -p app-debug.apk assets/capacitor.config.json`. An `https://` address
+> has none of this and works in release builds too.
 >
 > To tell the two failures apart, check the gateway access log
 > (`docker compose logs --tail 50 gateway`): a request from the phone appears

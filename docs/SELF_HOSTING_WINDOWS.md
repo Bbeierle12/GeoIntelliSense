@@ -63,12 +63,12 @@ whenever the desk is quiet.
 `npm run phone:urls` prints every address the phone can use, best first.
 
 **Use the HTTPS ones.** The Capacitor WebView runs on an `https://localhost`
-origin, so a plain-`http://` server address is *mixed content* and the WebView
-drops the request before it reaches the network — Save & reconnect appears to
-work, the app reloads, and nothing is ever sent. Only a debug build that sets
-both `android.allowMixedContent` (capacitor.config.ts) and
-`usesCleartextTraffic` (src/debug/AndroidManifest.xml) can use `http://` at all.
-HTTPS works in every build and has no such trap.
+origin, so a plain-`http://` server address is *mixed content*: only a build
+that sets both `android.allowMixedContent` (capacitor.config.ts) and
+`usesCleartextTraffic` (src/debug/AndroidManifest.xml) can use one at all. In a
+build missing either, the WebView drops the request before it reaches the
+network — Save & reconnect appears to work, the app reloads, and nothing is ever
+sent. HTTPS works in every build, debug or release, and has no such trap.
 
 `tailscale serve` terminates TLS with a real Let's Encrypt certificate issued for
 the MagicDNS name, so no self-signed-cert exception is needed. `--https=443`
