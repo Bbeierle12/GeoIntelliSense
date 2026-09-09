@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gatewayApiUrl, ingestionBaseUrl } from '../config/api';
+import { gatewayApiUrl, ingestionBaseUrl, isBackendConfigured } from '../config/api';
 
 interface ApiStatus {
     isAvailable: boolean;
@@ -13,6 +13,13 @@ export const useApiStatus = (): ApiStatus => {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!isBackendConfigured) {
+            setIsAvailable(false);
+            setError('No server configured. Open Settings > API & Connection and enter your GeoIntelliSense server address.');
+            setIsLoading(false);
+            return;
+        }
+
         const checkApiStatus = async () => {
             try {
                 const [rustRes, pythonRes] = await Promise.all([
