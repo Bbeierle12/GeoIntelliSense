@@ -21,11 +21,12 @@ export interface ServerConfig {
 const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
 
 /**
- * RFC 1918 ranges plus mDNS `.local` names. A phone on the same Wi-Fi as a
+ * RFC 1918 ranges, the CGNAT range used by Tailscale (100.64.0.0/10), and
+ * mDNS `.local` names. A phone on the same Wi-Fi (or tailnet) as a
  * developer's machine can reach these; nothing on the public internet can.
  */
 const PRIVATE_HOST_PATTERN =
-  /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|[a-z0-9-]+\.local)$/i;
+  /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|[a-z0-9-]+\.local)$/i;
 
 /** True when running inside the Capacitor Android/iOS shell. */
 export const isNativeApp = (): boolean => {

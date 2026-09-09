@@ -12,6 +12,7 @@
     "cap:open:android": "cap open android",
     "apk:debug": "npm run build:mobile && cd android && ./gradlew assembleDebug",
     "apk:release": "npm run build:mobile && cd android && ./gradlew assembleRelease",
+    "phone:urls": "node scripts/phone-urls.mjs",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",

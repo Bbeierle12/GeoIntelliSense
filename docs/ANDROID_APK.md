@@ -61,13 +61,73 @@ newer build over an older one works as long as both were built with the same
 debug key (same machine or the same GitHub Actions runner image key). If the
 install is refused with a signature error, uninstall the old copy first.
 
+## Quick start: live data on the phone today
+
+You need a computer on the same Wi-Fi as the phone, with Docker Desktop (or
+Docker Engine) and Node installed. The whole thing is about 15 minutes, most
+of it the first image build.
+
+```bash
+git clone <this repo> && cd GeoIntelliSense
+cp .env.example .env          # optional: add API keys (see below)
+docker compose up -d          # first run builds the Rust + Python images
+npm ci && npm run phone:urls  # prints the two URLs to type into the phone
+```
+
+Install the debug APK on the phone (section 2 below), open **Settings > API &
+Connection > Server Connection**, enter the two `http://<your-ip>:...` URLs
+that `npm run phone:urls` printed, and tap **Save & reconnect**. The
+dashboard fills in within a few seconds.
+
+What is live without any API key: weather forecast (NWS), earthquakes
+(USGS), water levels (USGS), temperature-inversion status, and the AQI
+prediction model. AQI readings are **simulated** until you add a PurpleAir
+key. To light up the rest, put these in `.env` and run
+`docker compose up -d` again (each is a free signup that issues a key
+immediately or by email within minutes):
+
+| Key | Unlocks | Get it at |
+| --- | --- | --- |
+| `PURPLEAIR_API_KEY` | live AQI from neighbourhood sensors, 24h trend | https://develop.purpleair.com/ |
+| `NASA_FIRMS_KEY` | active fires widget | https://firms.modaps.eosdis.nasa.gov/api/map_key/ |
+| `AIRNOW_API_KEY` | official EPA observations/forecast | https://docs.airnowapi.org/account/request/ |
+| `NOAA_CDO_TOKEN` | historical weather in Analysis | https://www.ncdc.noaa.gov/cdo-web/token |
+| `ANTHROPIC_API_KEY` | AI chat and analysis | https://console.anthropic.com/settings/keys |
+| `GOOGLE_MAPS_API_KEY` | interactive map screen | https://console.cloud.google.com/google/maps-apis/ |
+
+### Off Wi-Fi: keep it working on cellular with Tailscale
+
+Install [Tailscale](https://tailscale.com/download) on the computer and the
+phone and sign both into the same account. `npm run phone:urls` then also
+prints a `100.x.y.z` address (the computer's Tailscale IP); enter those URLs
+in the app instead. The computer must stay on and running `docker compose`.
+
+For HTTPS on the tailnet (needed by a release build), enable HTTPS in the
+Tailscale admin console and publish both ports:
+
+```bash
+tailscale serve --bg --https=443  http://127.0.0.1:8080
+tailscale serve --bg --https=8443 http://127.0.0.1:3001
+```
+
+Then use `https://<machine>.<tailnet>.ts.net` and
+`https://<machine>.<tailnet>.ts.net:8443` in the app.
+
+### Always on: host it on a VPS
+
+Any Linux VPS with Docker works: clone the repo, `docker compose up -d`,
+point a DNS name at it, and put HTTPS in front (Caddy with a domain block,
+or the host's load balancer). Then bake the public URLs into the build with
+the workflow's **Run workflow** inputs or the `VITE_*` variables, and the
+app needs no in-app setup at all.
+
 ## 3) Point the app at a server
 
 The app is a client. Its data comes from the GeoIntelliSense backend
 (`docker compose up` in this repository, or a hosted deployment). On first
 launch with no server baked in, every screen reports "No server configured".
 
-1. Open **Settings** (gear icon in the sidebar).
+1. Open **Settings** (gear icon at the bottom of the sidebar).
 2. Under **API & Connection > Server Connection** enter:
    - **Gateway URL**: the gateway service (port 8080 in docker compose)
    - **Ingestion URL**: the ingestion service (port 3001 in docker compose)
@@ -78,18 +138,20 @@ Rules for the address:
 
 - Public servers must use `https://`.
 - Plain `http://` is accepted only for private-network hosts such as
-  `http://192.168.1.20:8080`, `http://10.0.0.5:3001`, or `http://mybox.local:8080`,
-  and only in **debug** builds. Release builds enforce HTTPS at the OS level.
+  `http://192.168.1.20:8080`, `http://10.0.0.5:3001`, `http://100.101.102.103:8080`
+  (Tailscale), or `http://mybox.local:8080`, and only in **debug** builds.
+  Release builds enforce HTTPS at the OS level.
 
 ### Talking to a laptop on the same Wi-Fi
 
 ```bash
 docker compose up -d           # backend on the laptop
-ip addr | grep "inet 192"      # find the laptop's LAN IP, e.g. 192.168.1.20
+npm run phone:urls             # prints the laptop's LAN IP as ready-to-type URLs
 ```
 
-Then in the app enter `http://192.168.1.20:8080` and `http://192.168.1.20:3001`.
-Make sure the laptop firewall allows inbound connections on those ports.
+Then in the app enter the printed `http://<ip>:8080` and `http://<ip>:3001`.
+Make sure the laptop firewall allows inbound connections on those ports
+(Windows Defender and macOS both prompt the first time Docker listens).
 
 ## Troubleshooting
 

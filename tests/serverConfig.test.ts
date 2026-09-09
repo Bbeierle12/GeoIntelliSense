@@ -117,12 +117,19 @@ describe('server config (native override)', () => {
       expect(api.validateServerUrl('http://10.0.0.5:3001', 'Ingestion URL')).toBe('http://10.0.0.5:3001');
       expect(api.validateServerUrl('http://172.20.1.1', 'Gateway URL')).toBe('http://172.20.1.1');
       expect(api.validateServerUrl('http://mybox.local:8080', 'Gateway URL')).toBe('http://mybox.local:8080');
+      // Tailscale (CGNAT 100.64.0.0/10)
+      expect(api.validateServerUrl('http://100.101.102.103:8080', 'Gateway URL')).toBe('http://100.101.102.103:8080');
+      expect(api.validateServerUrl('http://100.64.0.1:3001', 'Ingestion URL')).toBe('http://100.64.0.1:3001');
+      expect(api.validateServerUrl('http://100.127.255.254', 'Gateway URL')).toBe('http://100.127.255.254');
     });
 
     it('rejects plain HTTP to public hosts', async () => {
       const api = await loadApi();
       expect(() => api.validateServerUrl('http://api.example.com', 'Gateway URL')).toThrow(/must use HTTPS/);
       expect(() => api.validateServerUrl('http://8.8.8.8', 'Gateway URL')).toThrow(/must use HTTPS/);
+      // Just outside the CGNAT range
+      expect(() => api.validateServerUrl('http://100.63.255.255', 'Gateway URL')).toThrow(/must use HTTPS/);
+      expect(() => api.validateServerUrl('http://100.128.0.1', 'Gateway URL')).toThrow(/must use HTTPS/);
     });
   });
 });

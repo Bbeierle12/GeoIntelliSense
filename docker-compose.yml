@@ -1,20 +1,22 @@
+# All variables have working defaults, so `docker compose up -d` starts with no
+# .env file. Copy .env.example to .env to add API keys or change ports.
 services:
   # ── PostgreSQL + TimescaleDB + PostGIS ──────────────
   db:
     image: timescale/timescaledb-ha:pg16
     container_name: geointellisense-db
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-geointellisense}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geointellisense_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-geointellisense}
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/home/postgres/pgdata/data
       - ./db/init:/docker-entrypoint-initdb.d
       - ./db/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geointellisense} -d ${POSTGRES_DB:-geointellisense}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,7 +31,7 @@ services:
     container_name: geointellisense-redis
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -49,7 +51,7 @@ services:
       dockerfile: Dockerfile
     container_name: geointellisense-ingestion
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgres://${POSTGRES_USER:-geointellisense}:${POSTGRES_PASSWORD:-geointellisense_dev}@db:5432/${POSTGRES_DB:-geointellisense}
       PORT: "3001"
       RUST_LOG: info
       PURPLEAIR_API_KEY: ${PURPLEAIR_API_KEY:-}
@@ -58,7 +60,7 @@ services:
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
-      - "${INGESTION_PORT}:3001"
+      - "${INGESTION_PORT:-3001}:3001"
     depends_on:
       db:
         condition: service_healthy
@@ -84,8 +86,8 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-geointellisense}:${POSTGRES_PASSWORD:-geointellisense_dev}@db:5432/${POSTGRES_DB:-geointellisense}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AIRNOW_API_KEY: ${AIRNOW_API_KEY:-}
       NOAA_CDO_TOKEN: ${NOAA_CDO_TOKEN:-}
       NASA_FIRMS_KEY: ${NASA_FIRMS_KEY:-}
@@ -93,13 +95,14 @@ services:
       EPA_AQS_KEY: ${EPA_AQS_KEY:-}
       CENSUS_API_KEY: ${CENSUS_API_KEY:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       DEM_DATA_DIR: /app/data/dem
       LANDSAT_DATA_DIR: /app/data/landsat
       MODEL_DIR: /app/data/models
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
-      - "${ANALYTICS_PORT}:3002"
+      - "${ANALYTICS_PORT:-3002}:3002"
     volumes:
       - demdata:/app/data/dem
       - landsatdata:/app/data/landsat
@@ -124,7 +127,7 @@ services:
     image: caddy:2-alpine
     container_name: geointellisense-gateway
     ports:
-      - "${GATEWAY_PORT}:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
