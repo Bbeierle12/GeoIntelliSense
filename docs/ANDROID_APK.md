@@ -98,22 +98,29 @@ immediately or by email within minutes):
 ### Off Wi-Fi: keep it working on cellular with Tailscale
 
 Install [Tailscale](https://tailscale.com/download) on the computer and the
-phone and sign both into the same account. `npm run phone:urls` then also
-prints the computer's MagicDNS name (`http://mybox.tailnet.ts.net:8080`) and
-its `100.x.y.z` Tailscale IP; enter either pair in the app instead of the
-Wi-Fi ones. The phone then reaches the backend from anywhere, including on
-cellular. The computer must stay on and running `docker compose`.
+phone and sign both into the same account. The phone then reaches the backend
+from anywhere, including on cellular. The computer must stay on and running
+`docker compose`.
 
-For HTTPS on the tailnet (needed by a release build), enable HTTPS in the
-Tailscale admin console and publish both ports:
+Publish both services over HTTPS with `tailscale serve`. This is the address
+pair to use — see the mixed-content warning under *Rules for the address*
+below for why `http://` so often looks like it saved and then does nothing.
+`tailscale serve` uses a real Let's Encrypt certificate for the MagicDNS name,
+so there is no certificate warning to click through. Pick spare ports if a
+Funnel already owns 443:
 
 ```bash
-tailscale serve --bg --https=443  http://127.0.0.1:8080
-tailscale serve --bg --https=8443 http://127.0.0.1:3001
+tailscale serve --bg --https=8443 http://127.0.0.1:8080
+tailscale serve --bg --https=8444 http://127.0.0.1:3001
 ```
 
-Then use `https://<machine>.<tailnet>.ts.net` and
-`https://<machine>.<tailnet>.ts.net:8443` in the app.
+```
+Gateway URL:   https://<machine>.<tailnet>.ts.net:8443
+Ingestion URL: https://<machine>.<tailnet>.ts.net:8444
+```
+
+`npm run phone:urls` prints these ready to type, checks that both answer, and
+falls back to the plain-http and LAN addresses if no serve listener is set up.
 
 ### Always on: host it on a VPS
 
@@ -144,6 +151,22 @@ Rules for the address:
   or `http://mybox.tailnet.ts.net:8080` (Tailscale), `http://mybox:8080`, or
   `http://mybox.local:8080`, and only in **debug** builds.
   Release builds enforce HTTPS at the OS level.
+
+> **`http://` saved fine but nothing happens? That is mixed content.**
+> The WebView origin is `https://localhost` (`androidScheme: 'https'`), so an
+> `http://` request is mixed content and the WebView discards it *before* it
+> reaches the network — the address validates, the app reloads, Backend Status
+> stays *Disconnected*, and the server sees no request at all. It works only in
+> a build with **both** `android.allowMixedContent: true` in
+> `capacitor.config.ts` **and** `android:usesCleartextTraffic="true"` from
+> `android/app/src/debug/AndroidManifest.xml`. An APK built before those landed
+> can never use an `http://` address, however many times you press
+> *Save & reconnect*. Prefer an `https://` address; it has none of this.
+>
+> To tell the two failures apart, check the gateway access log
+> (`docker compose logs --tail 50 gateway`): a request from the phone appears
+> with `"X-Forwarded-For": ["100.x.y.z"]`. Nothing there means the phone never
+> sent it — mixed content, not firewall, not Tailscale.
 
 ### Talking to a laptop on the same Wi-Fi
 

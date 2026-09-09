@@ -1,4 +1,10 @@
 :8080 {
+	# Access log — needed to prove whether the phone actually reaches the gateway.
+	log {
+		output stdout
+		format console
+	}
+
 	# Rust ingestion service — SSE, real-time AQI, snapshots
 	handle /api/aqi-stream {
 		reverse_proxy ingestion:3001

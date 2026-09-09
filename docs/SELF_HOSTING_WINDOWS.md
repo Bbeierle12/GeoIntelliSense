@@ -60,21 +60,40 @@ whenever the desk is quiet.
 
 ## Reaching it from the phone over Tailscale
 
-`npm run phone:urls` prints the MagicDNS name and Tailscale IP. Plain HTTP works
-with the debug APK:
+`npm run phone:urls` prints every address the phone can use, best first.
 
-```
-Gateway URL:   http://<machine>.<tailnet>.ts.net:8080
-Ingestion URL: http://<machine>.<tailnet>.ts.net:3001
-```
+**Use the HTTPS ones.** The Capacitor WebView runs on an `https://localhost`
+origin, so a plain-`http://` server address is *mixed content* and the WebView
+drops the request before it reaches the network — Save & reconnect appears to
+work, the app reloads, and nothing is ever sent. Only a debug build that sets
+both `android.allowMixedContent` (capacitor.config.ts) and
+`usesCleartextTraffic` (src/debug/AndroidManifest.xml) can use `http://` at all.
+HTTPS works in every build and has no such trap.
 
-For HTTPS (required by a release build), note that `tailscale serve --https=443`
-fails if you already run a Funnel on 443. Use spare ports:
+`tailscale serve` terminates TLS with a real Let's Encrypt certificate issued for
+the MagicDNS name, so no self-signed-cert exception is needed. `--https=443`
+fails if a Funnel already owns 443, so use spare ports:
 
 ```powershell
 tailscale serve --bg --https=8443 http://127.0.0.1:8080
 tailscale serve --bg --https=8444 http://127.0.0.1:3001
 ```
+
+```
+Gateway URL:   https://<machine>.<tailnet>.ts.net:8443
+Ingestion URL: https://<machine>.<tailnet>.ts.net:8444
+```
+
+Verify from the phone's side with the gateway access log — the `Caddyfile` has a
+`log` block for exactly this reason:
+
+```powershell
+docker compose logs --tail 50 gateway
+```
+
+A request from the phone shows up with `"X-Forwarded-For": ["100.x.y.z"]`. **No
+entry at all means the request never left the phone**, which is the mixed-content
+case above, not a firewall or Tailscale problem.
 
 The Tailscale adapter is usually classified as a **Public** network by Windows,
 so firewall rules must apply to the Public profile — `-Profile Any` is safest:
