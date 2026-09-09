@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use rand::Rng;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -26,16 +25,32 @@ pub struct AqiReading {
     pub category: &'static str,
     pub color: &'static str,
     pub pm25: f64,
-    pub pm10: f64,
-    pub o3: f64,
-    pub no2: f64,
-    pub so2: f64,
-    pub co: f64,
-    pub temperature: f64,
-    pub humidity: f64,
-    pub wind_speed: f64,
-    pub wind_direction: f64,
+    // Everything below is optional: a field is present only when it was
+    // actually measured. Serialising an unmeasured pollutant as 0.0 made the
+    // UI display a hard zero that looked like a real reading.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pm10: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub o3: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no2: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub so2: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub co: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub humidity: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_speed: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_direction: Option<f64>,
     pub source: &'static str,
+    /// Which correction was applied to `pm25`, if any, so a consumer can tell a
+    /// corrected sensor value from a raw one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correction: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_sensor_count: Option<i32>,
 }
@@ -46,41 +61,69 @@ pub struct AqiHistoryPoint {
     pub timestamp: DateTime<Utc>,
     pub aqi: u32,
     pub pm25: f64,
-    pub pm10: f64,
-    pub o3: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pm10: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub o3: Option<f64>,
+    /// Where the point came from, so a chart can never present stored
+    /// measurements and generated values as the same thing.
+    pub source: &'static str,
 }
 
+/// Kern County reporting communities.
+///
+/// Scope is Kern County only. Each entry is a community that had live outdoor
+/// PurpleAir coverage when this list was compiled (2026-09-09); communities with
+/// no sensors (Arvin/Lamont, Frazier Park, Buttonwillow) are deliberately absent
+/// rather than present-but-empty. Sensors are assigned to the nearest station
+/// and anything farther than `purpleair::MAX_STATION_RADIUS_KM` is discarded, so
+/// the list also acts as the county boundary filter.
 pub fn stations() -> Vec<Station> {
     vec![
         Station {
-            id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000001").unwrap(),
-            name: "Fresno-Garland".into(), lat: 36.7852, lng: -119.7871,
-            county: "Fresno".into(), base_aqi: 75.0,
-        },
-        Station {
             id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000002").unwrap(),
-            name: "Bakersfield-California".into(), lat: 35.3733, lng: -119.0187,
+            name: "Bakersfield".into(), lat: 35.3733, lng: -119.0187,
             county: "Kern".into(), base_aqi: 85.0,
         },
         Station {
-            id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000003").unwrap(),
-            name: "Stockton-Hazelton".into(), lat: 37.9505, lng: -121.2908,
-            county: "San Joaquin".into(), base_aqi: 55.0,
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000011").unwrap(),
+            name: "Delano".into(), lat: 35.7688, lng: -119.2471,
+            county: "Kern".into(), base_aqi: 75.0,
         },
         Station {
-            id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000004").unwrap(),
-            name: "Modesto-14th Street".into(), lat: 37.6391, lng: -120.9969,
-            county: "Stanislaus".into(), base_aqi: 60.0,
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000012").unwrap(),
+            name: "Shafter-Wasco".into(), lat: 35.5300, lng: -119.3000,
+            county: "Kern".into(), base_aqi: 78.0,
         },
         Station {
-            id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000005").unwrap(),
-            name: "Visalia-Church".into(), lat: 36.3302, lng: -119.2921,
-            county: "Tulare".into(), base_aqi: 65.0,
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000013").unwrap(),
+            name: "Taft".into(), lat: 35.1425, lng: -119.4565,
+            county: "Kern".into(), base_aqi: 70.0,
         },
         Station {
-            id: Uuid::parse_str("a1b2c3d4-0001-4000-8000-000000000006").unwrap(),
-            name: "Merced-Coffee".into(), lat: 37.2827, lng: -120.4630,
-            county: "Merced".into(), base_aqi: 50.0,
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000015").unwrap(),
+            name: "Tehachapi".into(), lat: 35.1322, lng: -118.4490,
+            county: "Kern".into(), base_aqi: 45.0,
+        },
+        Station {
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000016").unwrap(),
+            name: "Ridgecrest".into(), lat: 35.6225, lng: -117.6709,
+            county: "Kern".into(), base_aqi: 45.0,
+        },
+        Station {
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000017").unwrap(),
+            name: "Lake Isabella".into(), lat: 35.6180, lng: -118.4730,
+            county: "Kern".into(), base_aqi: 40.0,
+        },
+        Station {
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000018").unwrap(),
+            name: "California City".into(), lat: 35.1258, lng: -117.9859,
+            county: "Kern".into(), base_aqi: 40.0,
+        },
+        Station {
+            id: Uuid::parse_str("a1b2c3d4-0002-4000-8000-000000000019").unwrap(),
+            name: "Mojave-Rosamond".into(), lat: 34.9500, lng: -118.1700,
+            county: "Kern".into(), base_aqi: 42.0,
         },
     ]
 }
@@ -96,70 +139,9 @@ pub fn aqi_category(aqi: u32) -> (&'static str, &'static str) {
     }
 }
 
-pub fn generate_readings(stations: &[Station]) -> Vec<AqiReading> {
-    let mut rng = rand::thread_rng();
-    let now = Utc::now();
-
-    stations
-        .iter()
-        .map(|s| {
-            let aqi = (s.base_aqi + rng.gen_range(-20.0..25.0)).clamp(0.0, 500.0) as u32;
-            let (category, color) = aqi_category(aqi);
-            let pm25 = (aqi as f64 * 0.35 + rng.gen_range(-3.0..3.0)).max(0.0);
-            let pm10 = (aqi as f64 * 0.55 + rng.gen_range(-5.0..5.0)).max(0.0);
-
-            AqiReading {
-                station_id: s.id,
-                station_name: s.name.clone(),
-                lat: s.lat,
-                lng: s.lng,
-                county: s.county.clone(),
-                timestamp: now,
-                aqi,
-                category,
-                color,
-                pm25: round2(pm25),
-                pm10: round2(pm10),
-                o3: round2(rng.gen_range(0.02..0.08)),
-                no2: round2(rng.gen_range(0.01..0.06)),
-                so2: round2(rng.gen_range(0.001..0.015)),
-                co: round2(rng.gen_range(0.1..1.5)),
-                temperature: round2(rng.gen_range(60.0..95.0)),
-                humidity: round2(rng.gen_range(30.0..85.0)),
-                wind_speed: round2(rng.gen_range(0.0..25.0)),
-                wind_direction: round2(rng.gen_range(0.0..360.0)),
-                source: "mock",
-                raw_sensor_count: None,
-            }
-        })
-        .collect()
-}
-
-pub fn generate_history(station_id: &str, hours: u32) -> Vec<AqiHistoryPoint> {
-    let mut rng = rand::thread_rng();
-    let now = Utc::now();
-    let points = hours * 12; // one point per 5 minutes
-
-    let base_aqi: f64 = if station_id.contains("0002") { 85.0 } else { 60.0 };
-    let mut aqi_walk = base_aqi;
-
-    (0..points)
-        .rev()
-        .map(|i| {
-            aqi_walk += rng.gen_range(-5.0..5.0);
-            aqi_walk = aqi_walk.clamp(5.0, 400.0);
-            let aqi = aqi_walk as u32;
-
-            AqiHistoryPoint {
-                timestamp: now - chrono::Duration::minutes(i as i64 * 5),
-                aqi,
-                pm25: round2(aqi as f64 * 0.35 + rng.gen_range(-2.0..2.0)),
-                pm10: round2(aqi as f64 * 0.55 + rng.gen_range(-3.0..3.0)),
-                o3: round2(rng.gen_range(0.02..0.08)),
-            }
-        })
-        .collect()
-}
+// generate_readings() and generate_history() were removed. They produced
+// random values that were persisted to sensor_readings, broadcast over SSE,
+// and charted, in every case without anything marking them as synthetic.
 
 pub fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0

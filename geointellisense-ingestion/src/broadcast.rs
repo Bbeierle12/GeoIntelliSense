@@ -51,6 +51,7 @@ pub fn spawn_ticker(
         let stations_pa = stations.clone();
         let pa = Arc::new(client);
         let redis_pa = redis.clone();
+        let pool_pa = pool.clone();
 
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(purpleair_secs));
@@ -74,17 +75,15 @@ pub fn spawn_ticker(
                 }
 
                 match pa.fetch_readings(&stations_pa).await {
-                    Ok(mut readings) if !readings.is_empty() => {
-                        let covered: std::collections::HashSet<_> =
-                            readings.iter().map(|r| r.station_id).collect();
-                        let mock = aqi::generate_readings(&stations_pa);
-                        for m in mock {
-                            if !covered.contains(&m.station_id) {
-                                tracing::debug!(station = %m.station_name, "No PurpleAir sensors nearby, using mock");
-                                readings.push(m);
-                            }
-                        }
+                    Ok(readings) if !readings.is_empty() => {
+                        // Stations without usable sensors are simply absent.
+                        // Back-filling them with generate_readings() used to mix
+                        // synthetic values into an otherwise live response,
+                        // where they were indistinguishable to any consumer that
+                        // did not inspect the per-reading `source` field.
                         tracing::info!("PurpleAir fetch OK — {} readings cached", readings.len());
+                        // One stored row per station per fetch.
+                        persist::write_readings(&pool_pa, &readings).await;
                         *cache_w.write().await = Some(readings);
                     }
                     Ok(_) => tracing::warn!("PurpleAir returned no readings, cache unchanged"),
@@ -108,11 +107,16 @@ pub fn spawn_ticker(
                             .map(|r| AqiReading { timestamp: now, ..r.clone() })
                             .collect()
                     }
-                    None => aqi::generate_readings(&stations),
+                    // Nothing fetched yet. This used to synthesise readings,
+                    // which the line below then wrote to sensor_readings.
+                    None => Vec::new(),
                 }
             };
 
-            persist::write_readings(&pool, &readings).await;
+            // Persistence now happens in the PurpleAir loop, once per actual
+            // fetch. Writing here persisted the same cached values every
+            // `broadcast_secs` (17,280 duplicate rows per station per day) and
+            // stored generated data whenever the cache was empty.
 
             // Cache snapshot in Redis + heartbeat
             {

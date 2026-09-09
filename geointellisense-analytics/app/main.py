@@ -25,6 +25,7 @@ from app.routes.maps_config import router as maps_config_router
 from app.routes.epa_aqi import router as epa_aqi_router
 from app.routes.earthquakes import router as earthquakes_router
 from app.routes.airnow import router as airnow_router
+from app.routes.aqi_headline import router as aqi_headline_router
 from app.routes.weather_historical import router as weather_historical_router
 from app.routes.calgem import router as calgem_router
 from app.routes.enviroscreen import router as enviroscreen_router
@@ -91,6 +92,7 @@ app.include_router(maps_config_router)
 app.include_router(epa_aqi_router)
 app.include_router(earthquakes_router)
 app.include_router(airnow_router)
+app.include_router(aqi_headline_router)
 app.include_router(weather_historical_router)
 app.include_router(calgem_router)
 app.include_router(enviroscreen_router)

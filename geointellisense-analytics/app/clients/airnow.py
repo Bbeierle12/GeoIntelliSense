@@ -5,6 +5,7 @@ Docs: https://docs.airnowapi.org/
 Rate limit: 500 requests/hour (generous). We cache for 1 hour.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -14,14 +15,20 @@ logger = logging.getLogger(__name__)
 
 AIRNOW_BASE = "https://www.airnowapi.org/aq"
 
-# SJV cities with their coordinates for observation lookups
-SJV_LOCATIONS = [
+# AirNow reporting areas covering Kern County.
+#
+# AirNow reports by reporting area, not by town, and all of Kern is served by
+# just three: Bakersfield (which also covers Shafter, Wasco, Taft and
+# Arvin/Lamont), Mojave (Tehachapi, California City, Rosamond) and Trona
+# (Ridgecrest, ozone and PM10 only). Querying individual towns returned the same
+# reporting area several times over and produced duplicate rows.
+#
+# Delano and Lake Isabella have no reporting area within 30 miles and therefore
+# no EPA reference value; they are sensor-only communities.
+KERN_LOCATIONS = [
     {"name": "Bakersfield", "lat": 35.3733, "lng": -119.0187, "county": "Kern"},
-    {"name": "Fresno", "lat": 36.7378, "lng": -119.7871, "county": "Fresno"},
-    {"name": "Visalia", "lat": 36.3302, "lng": -119.2921, "county": "Tulare"},
-    {"name": "Merced", "lat": 37.3022, "lng": -120.4830, "county": "Merced"},
-    {"name": "Modesto", "lat": 37.6391, "lng": -120.9969, "county": "Stanislaus"},
-    {"name": "Stockton", "lat": 37.9577, "lng": -121.2908, "county": "San Joaquin"},
+    {"name": "Mojave", "lat": 35.0525, "lng": -118.1739, "county": "Kern"},
+    {"name": "Ridgecrest", "lat": 35.6225, "lng": -117.6709, "county": "Kern"},
 ]
 
 # AirNow AQI category mapping (matches our existing model)
@@ -50,6 +57,30 @@ class AirNowClient:
     async def close(self) -> None:
         await self._http.aclose()
 
+    async def _get_with_retry(self, url: str, params: dict, attempts: int = 3) -> list[dict]:
+        """GET with retries.
+
+        AirNow returns intermittent 502s. Without a retry a single blip drops a
+        reporting area from the response, and any caller that falls back to
+        sensor data then silently reports a PM2.5-only value as the area's AQI —
+        which reads "Good" during a PM10 dust event.
+        """
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                resp = await self._http.get(url, params=params)
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                last_error = e
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                # 4xx is a bad request; retrying will not help.
+                if status is not None and 400 <= status < 500:
+                    raise
+                if attempt < attempts - 1:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+        raise last_error  # type: ignore[misc]
+
     async def get_current_observations(self, lat: float, lng: float, distance_miles: int = 50) -> list[dict]:
         """Fetch current observations near a lat/lng point."""
         url = f"{AIRNOW_BASE}/observation/latLong/current/"
@@ -61,9 +92,7 @@ class AirNowClient:
             "API_KEY": self.api_key,
         }
 
-        resp = await self._http.get(url, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._get_with_retry(url, params)
 
     async def get_forecast(self, lat: float, lng: float, distance_miles: int = 50) -> list[dict]:
         """Fetch AQI forecast near a lat/lng point."""
@@ -76,15 +105,13 @@ class AirNowClient:
             "API_KEY": self.api_key,
         }
 
-        resp = await self._http.get(url, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._get_with_retry(url, params)
 
     async def get_all_sjv_current(self) -> list[dict[str, Any]]:
-        """Fetch current observations for all 6 SJV cities, normalized."""
+        """Fetch current observations for every Kern reporting area, normalized."""
         results = []
 
-        for loc in SJV_LOCATIONS:
+        for loc in KERN_LOCATIONS:
             try:
                 obs_list = await self.get_current_observations(loc["lat"], loc["lng"], distance_miles=25)
                 if not obs_list:
@@ -103,10 +130,10 @@ class AirNowClient:
         return results
 
     async def get_all_sjv_forecast(self) -> list[dict[str, Any]]:
-        """Fetch AQI forecast for all 6 SJV cities, normalized."""
+        """Fetch AQI forecast for every Kern reporting area, normalized."""
         results = []
 
-        for loc in SJV_LOCATIONS:
+        for loc in KERN_LOCATIONS:
             try:
                 forecasts = await self.get_forecast(loc["lat"], loc["lng"], distance_miles=25)
                 for f in forecasts:
@@ -137,29 +164,38 @@ class AirNowClient:
 
 def _normalize_observations(obs_list: list[dict], loc: dict) -> dict[str, Any] | None:
     """Normalize AirNow observation entries into a single reading matching our data model."""
-    pm25 = None
-    pm10 = None
-    o3 = None
+    # This endpoint returns an AQI sub-index per pollutant, never a µg/m³ or ppm
+    # concentration. These were previously stored as `pm25`/`pm10`/`o3`, which
+    # the rest of the stack reads as concentrations — a PM2.5 sub-index of 70
+    # was being rendered as "70 µg/m³". The *Aqi suffix keeps that unambiguous.
+    pm25_aqi = None
+    pm10_aqi = None
+    o3_aqi = None
     aqi = 0
+    dominant = None
 
     for obs in obs_list:
         param = obs.get("ParameterName", "")
-        obs_aqi = obs.get("AQI", 0)
+        obs_aqi = obs.get("AQI")
+        if obs_aqi is None or obs_aqi < 0:
+            continue
 
         if param == "PM2.5":
-            pm25 = obs_aqi  # AirNow returns AQI not raw concentration for this endpoint
-            if obs_aqi > aqi:
-                aqi = obs_aqi
+            pm25_aqi = obs_aqi
         elif param == "PM10":
-            pm10 = obs_aqi
-            if obs_aqi > aqi:
-                aqi = obs_aqi
-        elif param == "O3" or param == "OZONE":
-            o3 = obs_aqi
-            if obs_aqi > aqi:
-                aqi = obs_aqi
+            pm10_aqi = obs_aqi
+        elif param in ("O3", "OZONE"):
+            o3_aqi = obs_aqi
+        else:
+            continue
 
-    if aqi == 0:
+        # The reported AQI is the maximum across pollutants, and the pollutant
+        # that produced it is the "dominant" one.
+        if obs_aqi > aqi:
+            aqi = obs_aqi
+            dominant = "PM2.5" if param == "PM2.5" else ("PM10" if param == "PM10" else "O3")
+
+    if dominant is None:
         return None
 
     category, color = _aqi_category(aqi)
@@ -181,9 +217,14 @@ def _normalize_observations(obs_list: list[dict], loc: dict) -> dict[str, Any] |
         "aqi": aqi,
         "category": category,
         "color": color,
-        "pm25": pm25,
-        "pm10": pm10,
-        "o3": o3,
+        "dominantPollutant": dominant,
+        # AQI sub-indices, not concentrations — see the note above.
+        "pm25Aqi": pm25_aqi,
+        "pm10Aqi": pm10_aqi,
+        "o3Aqi": o3_aqi,
+        "pm25": None,
+        "pm10": None,
+        "o3": None,
         "no2": None,
         "so2": None,
         "co": None,
