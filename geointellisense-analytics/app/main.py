@@ -26,6 +26,7 @@ from app.routes.epa_aqi import router as epa_aqi_router
 from app.routes.earthquakes import router as earthquakes_router
 from app.routes.airnow import router as airnow_router
 from app.routes.aqi_headline import router as aqi_headline_router
+from app.routes.aqi_validation import router as aqi_validation_router, start_validation_logging
 from app.routes.weather_historical import router as weather_historical_router
 from app.routes.calgem import router as calgem_router
 from app.routes.enviroscreen import router as enviroscreen_router
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     await start_fire_polling()
     await start_inversion_polling()
     await start_retrain_scheduler()
+    await start_validation_logging()
     yield
     await close_redis()
     await close_pool()
@@ -93,6 +95,7 @@ app.include_router(epa_aqi_router)
 app.include_router(earthquakes_router)
 app.include_router(airnow_router)
 app.include_router(aqi_headline_router)
+app.include_router(aqi_validation_router)
 app.include_router(weather_historical_router)
 app.include_router(calgem_router)
 app.include_router(enviroscreen_router)
