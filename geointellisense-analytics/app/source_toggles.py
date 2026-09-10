@@ -29,6 +29,7 @@ SOURCES = {
     # ── On-demand API calls ──
     "airnow": "AirNow EPA monitor data",
     "nws_forecast": "NWS weather forecast",
+    "nws_observations": "NWS station observations (measured surface wind for the map)",
     "noaa_cdo": "NOAA Climate Data Online (historical weather)",
     "epa_aqs": "EPA Air Quality System (historical AQI)",
     "census": "U.S. Census Bureau ACS demographics",

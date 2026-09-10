@@ -110,6 +110,7 @@ class AirNowClient:
     async def get_all_sjv_current(self) -> list[dict[str, Any]]:
         """Fetch current observations for every Kern reporting area, normalized."""
         results = []
+        errors: list[str] = []
 
         for loc in KERN_LOCATIONS:
             try:
@@ -125,7 +126,18 @@ class AirNowClient:
 
             except Exception as e:
                 logger.warning("AirNow fetch failed for %s: %s", loc["name"], e)
+                errors.append(f"{loc['name']}: {e}")
                 continue
+
+        # Report liveness. AirNow's intermittent 502s silently downgraded
+        # Bakersfield from 77 Moderate to 43 Good once already; an empty result
+        # is a source failure, not a quiet "no data".
+        from app.source_health import record_failure, record_success
+
+        if results:
+            await record_success("airnow", f"{len(results)}/{len(KERN_LOCATIONS)} reporting areas")
+        else:
+            await record_failure("airnow", "; ".join(errors) or "no reporting area returned data")
 
         return results
 

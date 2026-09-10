@@ -21,6 +21,7 @@ from app.routes.weather_forecast import router as weather_forecast_router
 from app.routes.historical_aqi import router as historical_aqi_router
 from app.routes.historical_weather import router as historical_weather_router
 from app.routes.nws_forecast import router as nws_forecast_router
+from app.routes.wind import router as wind_router
 from app.routes.maps_config import router as maps_config_router
 from app.routes.epa_aqi import router as epa_aqi_router
 from app.routes.earthquakes import router as earthquakes_router
@@ -90,6 +91,7 @@ app.include_router(weather_forecast_router)
 app.include_router(historical_aqi_router)
 app.include_router(historical_weather_router)
 app.include_router(nws_forecast_router)
+app.include_router(wind_router)
 app.include_router(maps_config_router)
 app.include_router(epa_aqi_router)
 app.include_router(earthquakes_router)

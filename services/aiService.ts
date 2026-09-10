@@ -44,6 +44,8 @@ export const getGroundedSearchResponse = async (prompt: string): Promise<{ text:
         return { text: data.text, groundingChunks: data.groundingChunks };
     } catch (error) {
         console.error("Error in getGroundedSearchResponse:", error);
+        // fail-loud-ok: this is the error message shown to the user, not a
+        // substituted answer. groundingChunks stays empty so nothing is cited.
         return { text: "Failed to get a grounded response.", groundingChunks: [] };
     }
 };
@@ -66,6 +68,7 @@ export const getGroundedMapsResponse = async (prompt: string, location: { latitu
         return { text: data.text, groundingChunks: data.groundingChunks };
     } catch (error) {
         console.error("Error in getGroundedMapsResponse:", error);
+        // fail-loud-ok: error message shown to the user, not a substituted answer.
         return { text: "Failed to get a map-grounded response. Please ensure location permissions are enabled.", groundingChunks: [] };
     }
 };

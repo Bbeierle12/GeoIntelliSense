@@ -14,6 +14,7 @@ import { EyeIcon } from './icons/EyeIcon';
 import { CloudIcon } from './icons/CloudIcon';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { useRealtimeAQI } from '../hooks/useRealtimeAQI';
+import { useObservedWind, type ObservedWind } from '../hooks/useLiveData';
 
 // 3D Components
 import {
@@ -68,25 +69,22 @@ const getAqiColorLegacy = (aqi: number): string => {
   return '#881337';
 };
 
-// Generate simulated wind data for cities
-const generateWindData = (timestamp: Date): WindData[] => {
-  const hour = timestamp.getHours();
-  // Valley wind patterns change throughout day
-  const baseDirection = hour < 12 ? 315 : 135; // NW morning, SE afternoon
-  
-  return cityLocations.map((city) => {
-    const data = dashboardData[city];
-    if ('coords' in data) {
-      return {
-        lat: data.coords.lat,
-        lng: data.coords.lng,
-        speed: 5 + Math.random() * 15, // 5-20 mph
-        direction: baseDirection + (Math.random() - 0.5) * 40,
-      };
-    }
-    return { lat: 0, lng: 0, speed: 0, direction: 0 };
-  }).filter(w => w.lat !== 0);
-};
+// Wind comes from NWS station observations via /api/weather/wind. There is no
+// generated fallback: this layer used to invent `5 + Math.random() * 15` mph and
+// a direction from a hardcoded "NW morning, SE afternoon" rule, and drew it
+// unlabelled next to real AQI. Nothing in the stack ingests wind, so an arrow
+// with no observation behind it is fiction — and the upwind-fire and inversion
+// reasoning elsewhere in the app leans on these directions being real.
+// A community whose station reported nothing gets no arrow.
+const toWindField = (observed: ObservedWind[]): WindData[] =>
+  observed
+    .filter((o) => o.directionDegrees !== null)
+    .map((o) => ({
+      lat: o.lat,
+      lng: o.lng,
+      speed: o.speedMph,
+      direction: o.directionDegrees as number,
+    }));
 
 // =============================================================================
 // SUB-COMPONENTS
@@ -206,6 +204,9 @@ const AirQualityMapView: React.FC = () => {
     reconnect,
     lastUpdate,
   } = useRealtimeAQI({ enabled: true, fallbackToMock: true });
+
+  // Measured wind, separate from the AQI stream — see toWindField above.
+  const { data: observedWind } = useObservedWind();
   
   // State
   const [isLoading, setIsLoading] = useState(true);
@@ -259,7 +260,10 @@ const AirQualityMapView: React.FC = () => {
           pm25: data.currentAqi.pm25,
           temperature: data.currentWeather.temp,
           humidity: data.currentWeather.humidity,
-          windSpeed: 10 + Math.random() * 10,
+          // dashboardData carries no wind, and this marker set is the offline
+          // placeholder path. 0 here is "not measured", not "calm" — the wind
+          // layer is driven by observed data only.
+          windSpeed: 0,
         });
       }
     }
@@ -284,8 +288,11 @@ const AirQualityMapView: React.FC = () => {
   }, [useRealtimeData, realtimeAqiDataPoints.length, cityDataLen]);
   
   // Wind data (prefer real-time)
-  const staticWindData = useMemo(() => generateWindData(new Date()), []);
-  const windData = useRealtimeData && realtimeWindData.length > 0 ? realtimeWindData : staticWindData;
+  // Observed wind only. realtimeWindData rides on useRealtimeAQI, which
+  // synthesises its whole payload when the SSE stream is down, so it is not a
+  // trustworthy source for this layer even though the AQI banner labels it.
+  const windData = useMemo(() => toWindField(observedWind?.communities ?? []), [observedWind]);
+  const windUnavailableCount = observedWind?.unavailable.length ?? 0;
   
   // Calculate metrics
   const metrics: MetricsData = useMemo(() => {
@@ -398,6 +405,28 @@ const AirQualityMapView: React.FC = () => {
         <div className="bg-amber-900/30 border border-amber-600/50 rounded-lg px-4 py-2 mb-3 flex items-center justify-between">
           <span className="text-amber-300 text-sm">{realtimeError}</span>
           <button onClick={reconnect} className="text-amber-200 hover:text-white text-sm underline ml-4">Reconnect</button>
+        </div>
+      )}
+      {/* Wind provenance. The arrows are NWS station observations; say so, and
+          say when a community has none rather than drawing a guess. */}
+      {layers.windField && (
+        <div className="text-xs text-gray-400 mb-2">
+          {windData.length > 0 ? (
+            <>
+              Wind: NWS station observations · {windData.length} of{' '}
+              {(observedWind?.requested ?? windData.length)} communities
+              {windUnavailableCount > 0 && (
+                <span className="text-amber-400">
+                  {' '}· no observation for{' '}
+                  {observedWind?.unavailable.map((u) => u.community).join(', ')}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-amber-400">
+              Wind: no station observations available — arrows hidden
+            </span>
+          )}
         </div>
       )}
       {/* Header */}

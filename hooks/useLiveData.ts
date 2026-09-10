@@ -275,3 +275,36 @@ export interface ForecastPeriod {
 export function useNwsForecast() {
   return useLiveData<ForecastPeriod[]>('/api/forecast', { refreshInterval: 3_600_000 });
 }
+
+/**
+ * Measured surface wind from NWS station observations.
+ *
+ * `communities` contains only what a station actually reported; anything that
+ * could not be measured is named in `unavailable` instead of being filled in.
+ * Callers must render an empty array as "no wind data", never as calm.
+ */
+export interface ObservedWind {
+  community: string;
+  lat: number;
+  lng: number;
+  speedMph: number;
+  directionDegrees: number | null;
+  gustMph: number | null;
+  station: string;
+  observedAt: string | null;
+  ageSeconds: number | null;
+  source: string;
+}
+
+export interface ObservedWindResponse {
+  communities: ObservedWind[];
+  unavailable: { community: string; reason: string }[];
+  measured: number;
+  requested: number;
+  source: string;
+  generatedAt: string;
+}
+
+export function useObservedWind() {
+  return useLiveData<ObservedWindResponse>('/api/weather/wind', { refreshInterval: 600_000 });
+}
