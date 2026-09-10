@@ -51,9 +51,34 @@ docker exec geointellisense-redis redis-cli set geointelli:source-toggle:purplea
 ## Docker Desktop needs a signed-in session
 
 Docker Desktop runs inside your user session, not as a service. After a reboot
-the stack comes back **once you sign in to Windows**, not at boot. Enable
-*Settings > General > Start Docker Desktop when you sign in*; the containers use
-`restart: unless-stopped` and recover on their own from there.
+the stack comes back **once you sign in to Windows**, not at boot. The
+containers use `restart: unless-stopped` and recover on their own from there —
+but only once the engine exists, and the engine only exists once Docker Desktop
+is running.
+
+**Do not rely on Docker Desktop's own autostart.** Enabling *Settings > General
+> Start Docker Desktop when you sign in* is not enough. On 2026-09-09 this
+machine rebooted at 14:20 and the user signed in at 14:25 with the Run key
+present, its Task Manager entry enabled, and `AutoStart: true` in
+`settings-store.json` — and Docker Desktop wrote no log line at all. Only
+`com.docker.service` (the privileged helper) was up; the `docker-desktop` WSL
+distro was Stopped and the engine named pipe did not exist. The backend stayed
+down for 2h47m and nothing reported it. The phone just read *Disconnected*.
+
+`scripts/ensure-backend.ps1` is the guard. It waits for the engine, starts
+Docker Desktop itself if nothing else did, retries for up to ten minutes, runs
+`docker compose up -d`, polls `/health`, checks that both `tailscale serve`
+listeners are present, and writes the result to
+`Documents\GeoIntelliSense-setup-logs\startup.log`. Install it by putting a
+shortcut in the Startup folder (`Win+R` → `shell:startup`) pointing at:
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File "<repo>\scripts\ensure-backend.ps1"
+```
+
+Delete that shortcut to remove it — it touches nothing else. Run it by hand any
+time the phone says *Disconnected*; it is idempotent. **After any reboot, read
+the log before assuming the stack is up.**
 
 Set the machine's sleep timeout to Never on AC, or the backend disappears
 whenever the desk is quiet.
